@@ -26,6 +26,7 @@ Q53_11 = 9007199254614017
 Q54_11 = 18014398509404161
 Q55_11 = 36028797018820609
 Q56_11 = 72057594037641217
+QGoldilocks = 0xFFFF_FFFF_0000_0001
 
 data_path = "./security_result.parquet"
 # data_path = "./test.parquet"
@@ -45,6 +46,7 @@ if not os.path.exists(data_path):
     df.write_parquet(data_path)
 
 df = pl.read_parquet(data_path)
+
 
 def write_to_data(
     dimension: int,
@@ -70,6 +72,7 @@ def write_to_data(
     df.extend(new)
     df.write_parquet(data_path)
 
+
 def print_uncheck(
     dimension: int,
     modulus: int,
@@ -90,6 +93,7 @@ def print_uncheck(
         },
     )
     print(uncheck)
+
 
 def check_security(
     dimension: int,
@@ -122,7 +126,8 @@ def check_security(
         print("Error Occur!")
     else:
         return min([math.log(res.get("rop", 0), 2) for res in result.values()])
-    
+
+
 def check_security_with_data(
     dimension: int,
     modulus: int,
