@@ -27,6 +27,7 @@ Q54_11 = 18014398509404161
 Q55_11 = 36028797018820609
 Q56_11 = 72057594037641217
 QGoldilocks = 0xFFFF_FFFF_0000_0001
+QXX = 2**61 - 1
 
 data_path = "./security_result.parquet"
 # data_path = "./test.parquet"
