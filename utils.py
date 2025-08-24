@@ -31,6 +31,8 @@ Q58_11 = 288230376151683073
 Q59_11 = 576460752303419393
 Q60_11 = 1152921504606830593
 Q61_11 = 2305843009213616129
+Q62_11 = 4611686018427322369
+Q63_11 = 9223372036854497281
 QGoldilocks = 0xFFFF_FFFF_0000_0001
 QXX = 2**61 - 1
 
@@ -39,7 +41,7 @@ data_path = "./security_result.parquet"
 
 schema = {
     "dimension": pl.UInt64,
-    "modulus": pl.UInt64,
+    "modulus": pl.String,
     "secret_distr": pl.String,
     "secret_stddev": pl.Float64,
     "noise_stddev": pl.Float64,
@@ -65,7 +67,7 @@ def write_to_data(
     new = pl.DataFrame(
         {
             "dimension": [dimension],
-            "modulus": [modulus],
+            "modulus": [str(modulus)],
             "secret_distr": [secret_type],
             "secret_stddev": [secret_distr.stddev],
             "noise_stddev": [noise_stddev],
@@ -149,7 +151,9 @@ def check_security_with_data(
         )
         return
 
-    temp = df.filter(dimension=dimension, modulus=modulus, secret_distr=secret_type)
+    temp = df.filter(
+        dimension=dimension, modulus=str(modulus), secret_distr=secret_type
+    )
     exact = temp.filter(noise_stddev=noise_stddev)
 
     if exact.is_empty():
