@@ -83,7 +83,7 @@ def write_to_data(
 
 def print_uncheck(
     dimension: int,
-    modulus: int,
+    modulus: str,
     secret_type: str,
     secret_distr: NoiseDistribution,
     noise_stddev,
@@ -157,37 +157,37 @@ def check_security_with_data(
     exact = temp.filter(noise_stddev=noise_stddev)
 
     if exact.is_empty():
-        high = temp.filter(pl.col("security_bits") >= expect_security).sort(
-            "security_bits"
-        )
+        # high = temp.filter(pl.col("security_bits") >= expect_security).sort(
+        #     "security_bits"
+        # )
 
-        if (not high.is_empty()) and high.item(0, "noise_stddev") <= noise_stddev:
-            print_uncheck(
-                dimension,
-                modulus,
-                secret_type,
-                secret_distr,
-                noise_stddev,
-                high.item(0, "security_bits"),
-                ">{}",
-            )
-            return
+        # if (not high.is_empty()) and high.item(0, "noise_stddev") <= noise_stddev:
+        #     print_uncheck(
+        #         dimension,
+        #         str(modulus),
+        #         secret_type,
+        #         secret_distr,
+        #         noise_stddev,
+        #         high.item(0, "security_bits"),
+        #         ">{}",
+        #     )
+        #     return
 
-        low = temp.filter(pl.col("security_bits") < expect_security).sort(
-            "security_bits", descending=True
-        )
+        # low = temp.filter(pl.col("security_bits") < expect_security).sort(
+        #     "security_bits", descending=True
+        # )
 
-        if (not low.is_empty()) and low.item(0, "noise_stddev") >= noise_stddev:
-            print_uncheck(
-                dimension,
-                modulus,
-                secret_type,
-                secret_distr,
-                noise_stddev,
-                low.item(0, "security_bits"),
-                "<{}",
-            )
-            return
+        # if (not low.is_empty()) and low.item(0, "noise_stddev") >= noise_stddev:
+        #     print_uncheck(
+        #         dimension,
+        #         modulus,
+        #         secret_type,
+        #         secret_distr,
+        #         noise_stddev,
+        #         low.item(0, "security_bits"),
+        #         "<{}",
+        #     )
+        #     return
 
         security = check_security(dimension, modulus, secret_distr, noise_stddev)
 

@@ -53,8 +53,19 @@ def generate_prime_for_n(n, bits, count=1):
 
 
 # 示例使用
-n = 4096  # 多项式长度
-bits = 50  # 素数 q 的比特数
-q = generate_prime_for_n(n, bits, 2)
-print(f"生成的素数 q (比特数={bits}, 满足 q ≡ 1 mod {2*n}):")
-print(q)
+n = 1024  # 多项式长度
+bits = 16  # 素数 q 的比特数
+q = generate_prime_for_n(n, bits, 10)
+if len(q) != 0:
+    print(f"生成的素数 q (比特数={bits}, 满足 q ≡ 1 mod {2*n}):")
+    print(q)
+else:
+    print("没有满足要求的素数")
+
+for i, v in enumerate(q):
+    if i == 0:
+        print(v,end=" ")
+    else:
+        print("*",end=" ")
+        print(v,end=" ")
+print()
