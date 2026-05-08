@@ -122,12 +122,12 @@ def check_security(
             param,
             red_cost_model=(RC.LaaMosPol14 if is_quantum else RC.BDGL16),
             deny_list=(
-                "arora-gb",
+            #     "arora-gb",
                 "bkw",
-                "bdd_hybrid",
-                "bdd_mitm_hybrid",
-                "dual_hybrid",
-                "dual_mitm_hybrid",
+            #     "bdd_hybrid",
+            #     "bdd_mitm_hybrid",
+            #     "dual_hybrid",
+            #     "dual_mitm_hybrid",
             ),
             jobs=jobs,
         )
