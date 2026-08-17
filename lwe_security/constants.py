@@ -40,6 +40,7 @@ LWE_ESTIMATE_ATTACKS = (
 
 # Modulus constants ported from the legacy utils.py.
 # Names are preserved so existing scripts can switch import sources directly.
+Q26_10 = 67104769
 Q27_10 = 134215681
 Q27_11 = 134176769
 Q27_20 = 132120577

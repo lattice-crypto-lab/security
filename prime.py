@@ -54,8 +54,8 @@ def generate_prime_for_n(n, bits, count=1):
 
 # 示例使用
 n = 1024  # 多项式长度
-bits = 27  # 素数 q 的比特数
-q = generate_prime_for_n(n, bits, 10)
+bits = 26  # 素数 q 的比特数
+q = generate_prime_for_n(n, bits, 2)
 if len(q) != 0:
     print(f"生成的素数 q (比特数={bits}, 满足 q ≡ 1 mod {2*n}):")
     print(q)
