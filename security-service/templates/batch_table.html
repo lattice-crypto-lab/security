@@ -1,0 +1,12 @@
+<div class="table-wrap">
+  <table>
+    <thead><tr><th><span class="sr-only">选择</span></th><th>Batch</th><th>状态</th><th>安全 bit</th><th>报告</th><th>更新</th><th></th></tr></thead>
+    <tbody>
+    {% for batch in batches %}
+      {% include "batch_row.html" %}
+    {% else %}
+      <tr><td colspan="7" class="empty">没有匹配的运行批次。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

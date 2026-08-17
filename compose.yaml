@@ -1,0 +1,58 @@
+name: lattice-security
+
+services:
+  estimator-api:
+    platform: linux/amd64
+    image: ghcr.io/lattice-crypto-lab/estimator-api:${LATTICE_SECURITY_VERSION:-0.1.0}
+    expose:
+      - "8000"
+    networks:
+      - backend
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /home/sage/.cache:size=128m,uid=1000,gid=1000
+      - /home/sage/.sage:size=64m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${ESTIMATOR_CPUS:-2.0}"
+    mem_limit: "${ESTIMATOR_MEMORY:-4g}"
+
+  security-service:
+    platform: linux/amd64
+    image: ghcr.io/lattice-crypto-lab/security-service:${LATTICE_SECURITY_VERSION:-0.1.0}
+    depends_on:
+      estimator-api:
+        condition: service_healthy
+    environment:
+      ESTIMATOR_API_URL: http://estimator-api:8000/
+      LATTICE_SECURITY_BIND: 0.0.0.0:8080
+      LATTICE_SECURITY_DATABASE: /var/lib/lattice-security/lattice-security.db
+      LATTICE_SECURITY_API_TOKEN: "${LATTICE_SECURITY_API_TOKEN:-}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    ports:
+      - "127.0.0.1:${LATTICE_SECURITY_PORT:-8080}:8080"
+    networks:
+      - backend
+    volumes:
+      - lattice-security-data:/var/lib/lattice-security
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${SECURITY_SERVICE_CPUS:-1.0}"
+    mem_limit: "${SECURITY_SERVICE_MEMORY:-512m}"
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  lattice-security-data:

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lattice Security</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">LOCAL PARAMETER LAB</p>
+      <h1>Lattice Security</h1>
+    </div>
+    <div class="status-chip"><span></span> estimator service</div>
+  </header>
+
+  <main>
+    {% if !message.is_empty() %}<div class="notice">{{ message }}</div>{% endif %}
+
+    <section class="hero-grid">
+      <article class="panel intro">
+        <p class="eyebrow">SECURITY WORKBENCH</p>
+        <h2>把一组参数当作一个完整方案来评估。</h2>
+        <p>导入 parameter-set，选择 case，运行固定攻击集合。计算结果按攻击缓存，慢攻击会依据时间和安全阈值自适应终止。</p>
+        <div class="metric-row">
+          <div><strong>{{ parameter_sets.len() }}</strong><span>参数方案</span></div>
+          <div><strong>{{ batches.len() }}</strong><span>最近批次</span></div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="section-heading"><div><p class="eyebrow">IMPORT</p><h2>导入方案</h2></div></div>
+        <form method="post" action="/ui/import" class="stack">
+          <label class="file-drop">选择 JSON 文件
+            <input type="file" accept="application/json,.json" data-file-target="parameter-document">
+          </label>
+          <textarea id="parameter-document" name="document" rows="7" required placeholder="粘贴 lattice-security/parameter-set JSON"></textarea>
+          <div class="form-row">
+            <label>冲突策略<select name="conflict"><option value="reject">reject</option><option value="replace">replace</option></select></label>
+            <label class="check"><input type="checkbox" name="run_all" value="yes"> 导入后运行全部 case</label>
+          </div>
+          <div class="form-row compact">
+            <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
+            <label>慢攻击判断<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
+            <label>高安全阈值<input name="high_security_bits" value="128"></label>
+          </div>
+          <button class="primary" type="submit">导入方案</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="panel section-panel">
+      <div class="section-heading"><div><p class="eyebrow">PARAMETER SETS</p><h2>方案库</h2></div><span>{{ parameter_sets.len() }} sets</span></div>
+      <div class="card-grid">
+      {% for item in parameter_sets %}
+        <a class="set-card" href="/ui/parameter-sets/{{ item.id }}">
+          <span class="mono">{{ item.id }}</span><h3>{{ item.name }}</h3>
+          <p>{{ item.case_count }} cases · version {{ item.version }}</p><small>{{ item.created_at }}</small>
+        </a>
+      {% else %}
+        <div class="empty">还没有方案。先导入一个 parameter-set。</div>
+      {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel section-panel">
+      <div class="section-heading"><div><p class="eyebrow">RUNS</p><h2>运行批次</h2></div><span class="htmx-indicator">同步中…</span></div>
+      <form id="batch-filters" class="filterbar" hx-get="/ui/batches" hx-target="#batch-table" hx-trigger="input changed delay:250ms, change">
+        <input name="q" placeholder="按 batch id 筛选">
+        <select name="state"><option value="">全部状态</option><option>pending</option><option>queued</option><option>running</option><option>completed</option><option>partial</option><option>timed_out</option><option>cancelled</option><option>failed</option></select>
+        <select name="sort"><option value="updated_desc">最近更新</option><option value="created_asc">最早创建</option><option value="security_asc">安全 bit</option></select>
+      </form>
+      <form class="bulkbar" data-collect-form>
+        <input type="hidden" name="ids" data-collect-output>
+        <button formaction="/ui/batches/bulk-cancel" formmethod="post">取消</button>
+        <button formaction="/ui/batches/bulk-rerun" formmethod="post">重跑</button>
+        <button formaction="/ui/batches/bulk-export" formmethod="post">导出报告</button>
+      </form>
+      <div id="batch-table" hx-get="/ui/batches" hx-trigger="every 5s" hx-include="#batch-filters">
+        {% include "batch_table.html" %}
+      </div>
+      <div id="detail-panel" class="detail-panel"><p class="empty">选择一个批次查看 case、attack 与缓存详情。</p></div>
+    </section>
+
+    <section class="panel section-panel split">
+      <div>
+        <p class="eyebrow">SWEEP</p><h2>参数扫描</h2>
+        <p class="muted">从一个 case 生成最多 10,000 个变体；超过 2,000 个活跃任务时，其余变体保持 pending 并自动进入队列。</p>
+      </div>
+      <form method="post" action="/ui/sweeps" class="stack">
+        <textarea name="base_case" rows="8" required placeholder="粘贴一个 ParameterCase JSON"></textarea>
+        <div class="form-row">
+          <label>扫描轴<select name="axis"><option value="dimension">dimension</option><option value="modulus">modulus</option><option value="error_standard_deviation">error standard deviation</option><option value="sample_count">sample count</option></select></label>
+          <label>值（逗号或换行）<textarea name="values" rows="3" required placeholder="512, 768, 1024"></textarea></label>
+        </div>
+        <div class="form-row compact">
+          <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
+          <label>慢攻击判断<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
+          <label>高安全阈值<input name="high_security_bits" value="128"></label>
+        </div>
+        <button class="primary" type="submit">生成并运行 sweep</button>
+      </form>
+    </section>
+  </main>
+  <footer>lattice-security · local only · Sage 10.9</footer>
+</body>
+</html>

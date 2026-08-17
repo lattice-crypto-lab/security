@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lattice-security-estimator-api"
+version = "0.1.0"
+description = "Internal, stateless Sage/lattice-estimator adapter for lattice-security"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi==0.139.2",
+  "pydantic==2.13.4",
+  "uvicorn==0.51.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx2==2.9.0",
+  "pytest==9.1.1",
+  "ruff==0.16.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/estimator_api"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "ASYNC", "RUF"]

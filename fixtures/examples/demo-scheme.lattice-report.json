@@ -1,0 +1,52 @@
+{
+  "format": "lattice-security/security-report",
+  "version": 1,
+  "id": "demo-scheme-report",
+  "name": "Demo scheme report",
+  "parameter_set_id": "demo-scheme",
+  "reports": [
+    {
+      "case": {
+        "id": "lwe-512",
+        "name": "LWE 512",
+        "problem": {
+          "kind": "lwe",
+          "dimension": 512,
+          "modulus": "65536",
+          "samples": { "kind": "unlimited" },
+          "secret": { "kind": "uniform_binary" },
+          "error": { "kind": "discrete_gaussian", "standard_deviation": "3.2" }
+        }
+      },
+      "request_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "provenance": {
+        "estimator_commit": "6019056011d10d7e9c30a0d5da2d2f729fbc2eec",
+        "sage_version": "10.9",
+        "adapter_version": "1",
+        "worker_image": "sagemath/sagemath@sha256:2401ffa8e9fc85c7ea17d3649bde5958b4dbf0858b3e504098c4102720151711",
+        "analysis_model": { "kind": "direct_lwe", "version": 1 },
+        "resolved_analysis": {
+          "security_model": "classical",
+          "cost_model": "BDGL16",
+          "shape_model": "GSA"
+        },
+        "created_at": "2026-08-17T00:00:00Z"
+      },
+      "summary": {
+        "security_bits": "100",
+        "best_attack": "usvp",
+        "complete": true
+      },
+      "attacks": [
+        { "attack": "arora_gb", "outcome": { "kind": "computed", "security_bits": "110", "duration_ms": 10 } },
+        { "attack": "bkw", "outcome": { "kind": "computed", "security_bits": "111", "duration_ms": 10 } },
+        { "attack": "usvp", "outcome": { "kind": "computed", "security_bits": "100", "duration_ms": 10 } },
+        { "attack": "bdd", "outcome": { "kind": "computed", "security_bits": "101", "duration_ms": 10 } },
+        { "attack": "bdd_hybrid", "outcome": { "kind": "computed", "security_bits": "102", "duration_ms": 10 } },
+        { "attack": "bdd_mitm_hybrid", "outcome": { "kind": "computed", "security_bits": "103", "duration_ms": 10 } },
+        { "attack": "dual", "outcome": { "kind": "computed", "security_bits": "104", "duration_ms": 10 } },
+        { "attack": "dual_hybrid", "outcome": { "kind": "computed", "security_bits": "105", "duration_ms": 10 } }
+      ]
+    }
+  ]
+}

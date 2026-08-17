@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JobSnapshot",
+  "type": "object",
+  "properties": {
+    "attempts": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "batch_id": {
+      "type": "string"
+    },
+    "case_id": {
+      "type": "string"
+    },
+    "case_index": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "state": {
+      "$ref": "#/$defs/RunState"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "batch_id",
+    "case_id",
+    "case_index",
+    "state",
+    "revision",
+    "attempts",
+    "created_at",
+    "updated_at"
+  ],
+  "$defs": {
+    "RunState": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "pending"
+            },
+            "staged_at": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "staged_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "queued"
+            },
+            "queued_at": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "queued_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "heartbeat_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "running"
+            },
+            "started_at": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "started_at",
+            "heartbeat_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cancel_requested"
+            },
+            "requested_at": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requested_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "finished_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "cancelled"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finished_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "finished_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "completed"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finished_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "finished_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "partial"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finished_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "finished_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "timed_out"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finished_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "interrupted_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "interrupted"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "interrupted_at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "finished_at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "failed"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finished_at",
+            "code",
+            "message"
+          ]
+        }
+      ]
+    }
+  }
+}

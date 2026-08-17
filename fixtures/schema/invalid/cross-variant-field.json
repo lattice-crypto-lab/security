@@ -1,0 +1,21 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "bad-variant",
+  "name": "Cross-variant field is forbidden",
+  "cases": [
+    {
+      "id": "lwe",
+      "name": "Bad LWE",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 8,
+        "modulus": "17",
+        "columns": 16,
+        "samples": { "kind": "finite", "count": 8 },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "centered_binomial", "eta": 2 }
+      }
+    }
+  ]
+}

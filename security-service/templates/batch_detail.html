@@ -1,0 +1,17 @@
+<article class="detail-card"{% if !batch.terminal %} hx-get="/ui/batches/{{ batch.id }}/detail" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="section-heading"><div><p class="eyebrow">BATCH DETAIL</p><h2>{{ batch.id }}</h2></div><span class="state state-{{ batch.state }}">{{ batch.state }}</span></div>
+  <p class="muted">revision {{ batch.revision }} · updated {{ batch.updated_at }}</p>
+  <div class="job-strip">
+  {% for job in jobs %}<div><span class="mono">{{ job.case_id }}</span><strong>{{ job.state }}</strong><small>{{ job.attempts }} attempts · {{ job.id }}</small></div>{% endfor %}
+  </div>
+  {% for report in reports %}
+  <details class="case-report" open>
+    <summary><span><strong>{{ report.case_name }}</strong><small class="mono">{{ report.case_id }}</small></span><span>{{ report.security }} bit{% if report.fast_estimate %} · fast estimate{% endif %}{% if report.complete %} · complete{% endif %}</span></summary>
+    <div class="attack-grid">
+    {% for attack in report.attacks %}
+      <div class="attack"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small>{{ attack.outcome }}{% if attack.cached %} · cached{% endif %}</small></div>
+    {% endfor %}
+    </div>
+  </details>
+  {% else %}<p class="empty">报告尚未生成，页面会自动刷新。</p>{% endfor %}
+</article>

@@ -1,0 +1,19 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "bad-ring-model",
+  "name": "Semantic reduction failure",
+  "cases": [
+    {
+      "id": "rlwe",
+      "name": "RLWE without explicit model",
+      "problem": {
+        "kind": "rlwe",
+        "negacyclic_ring": { "polynomial_degree": 1024, "ciphertext_modulus": "17" },
+        "samples": { "kind": "finite", "count": 1 },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "centered_binomial", "eta": 2 }
+      }
+    }
+  ]
+}

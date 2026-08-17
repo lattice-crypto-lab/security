@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metadata",
+  "type": "object",
+  "properties": {
+    "adapter_schema_version": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "adapter_version": {
+      "type": "string"
+    },
+    "adaptive_attacks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Attack"
+      }
+    },
+    "dependency_graph": true,
+    "dependency_graph_version": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "estimator_commit": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "sage_version": {
+      "type": "string"
+    },
+    "support_matrix": true,
+    "worker_image": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter_schema_version",
+    "dependency_graph_version",
+    "estimator_commit",
+    "sage_version",
+    "adapter_version",
+    "worker_image",
+    "platform",
+    "support_matrix",
+    "dependency_graph",
+    "adaptive_attacks"
+  ],
+  "$defs": {
+    "Attack": {
+      "type": "string",
+      "enum": [
+        "arora_gb",
+        "bkw",
+        "usvp",
+        "bdd",
+        "bdd_hybrid",
+        "bdd_mitm_hybrid",
+        "dual",
+        "dual_hybrid",
+        "dsd",
+        "lattice"
+      ]
+    }
+  }
+}

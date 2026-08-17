@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {
+      "id": "lwe-512",
+      "name": "LWE 512",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 512,
+        "modulus": "65536",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "3.2" }
+      }
+    }
+  ],
+  "timeout_seconds": 3600,
+  "slow_attack_policy": {
+    "decision_after_seconds": 60,
+    "high_security_bits": "128"
+  }
+}

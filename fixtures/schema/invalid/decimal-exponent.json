@@ -1,0 +1,20 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "bad-exponent",
+  "name": "Exponent is forbidden",
+  "cases": [
+    {
+      "id": "lwe",
+      "name": "Bad decimal",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 8,
+        "modulus": "17",
+        "samples": { "kind": "finite", "count": 8 },
+        "secret": { "kind": "discrete_gaussian", "standard_deviation": "1e-3" },
+        "error": { "kind": "centered_binomial", "eta": 2 }
+      }
+    }
+  ]
+}

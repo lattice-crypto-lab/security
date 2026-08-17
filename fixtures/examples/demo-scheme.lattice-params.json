@@ -1,0 +1,34 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "demo-scheme",
+  "name": "Demo scheme",
+  "description": "Two independent parameter cases that can be run together or separately.",
+  "cases": [
+    {
+      "id": "lwe-512",
+      "name": "LWE 512",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 512,
+        "modulus": "65536",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "3.2" }
+      }
+    },
+    {
+      "id": "ntru-1024",
+      "name": "Standard NTRU 1024",
+      "problem": {
+        "kind": "ntru",
+        "dimension": 1024,
+        "modulus": "132120577",
+        "secret": { "kind": "fixed_weight_ternary", "positive_weight": 256, "negative_weight": 256 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "6.88" },
+        "structure": "matrix"
+      },
+      "analysis": { "security_model": "quantum" }
+    }
+  ]
+}

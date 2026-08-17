@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ErrorEnvelope",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "message": {
+      "type": "string"
+    },
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "request_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "code",
+    "message",
+    "request_id"
+  ]
+}

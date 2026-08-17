@@ -1,0 +1,10 @@
+services:
+  estimator-api:
+    build:
+      context: .
+      dockerfile: estimator-api/Dockerfile
+
+  security-service:
+    build:
+      context: .
+      dockerfile: security-service/Dockerfile
