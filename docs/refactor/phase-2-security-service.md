@@ -18,15 +18,16 @@ On restart, unfinished attempts become interrupted; attempts below the retry
 limit are queued once more.
 
 For LWE-derived cases, missing fast attacks run as one plan. Missing
-`arora_gb`/`bkw` targets then run as a separate cancellable plan. The slow-plan
-decision timer only cuts it off when every fast attack has a computed result
-and the minimum fast security value meets the configured threshold. Otherwise
-the slow plan continues until completion or the overall worker timeout.
+`arora_gb` and `bkw` targets then run as two separately cancellable plans. Each
+timer cuts off only its corresponding attack, and only when that attack has a
+calibrated conservative approximation at or above
+`required_security_bits + stop_margin_bits`. Missing, out-of-domain, or lower
+approximations continue until completion or the overall worker timeout.
 
 Cancellation is persisted before the in-flight HTTP request is dropped. Any
 completed results remain cached and exportable in a partial report. A policy
-cutoff produces explicit `skipped` outcomes and never populates the computed
-cache.
+cutoff produces a calibrated `approximate` outcome in its separate model-keyed
+cache and never populates the computed cache.
 
 ## Status
 

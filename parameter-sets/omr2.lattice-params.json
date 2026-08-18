@@ -1,0 +1,66 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "omr2",
+  "name": "OMR2 参数方案",
+  "description": "从 omr2.py 的四个有效 SMART_EXACT 调用迁移。",
+  "tags": ["migrated", "python", "omr2"],
+  "cases": [
+    {
+      "id": "clue",
+      "name": "Clue",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 1024,
+        "modulus": "120833",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "3.19" }
+      }
+    },
+    {
+      "id": "first-bsk",
+      "name": "First BSK",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 1024,
+        "modulus": "67104769",
+        "samples": { "kind": "unlimited" },
+        "secret": {
+          "kind": "sparse_ternary",
+          "positive_count": 256,
+          "negative_count": 256
+        },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "3.19" }
+      }
+    },
+    {
+      "id": "ksk",
+      "name": "KSK",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 1024,
+        "modulus": "67104769",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "1633.28" }
+      }
+    },
+    {
+      "id": "second-bsk",
+      "name": "Second BSK",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 2048,
+        "modulus": "1125899906826241",
+        "samples": { "kind": "unlimited" },
+        "secret": {
+          "kind": "sparse_ternary",
+          "positive_count": 256,
+          "negative_count": 256
+        },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
+      }
+    }
+  ]
+}

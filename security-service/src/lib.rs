@@ -5,6 +5,7 @@
 //! and the internal estimator client.
 
 pub mod api;
+pub mod approximation;
 pub mod canonical;
 pub mod database;
 pub mod domain;
@@ -17,6 +18,7 @@ pub mod ui;
 pub mod upstream;
 pub mod validation;
 
+pub use approximation::*;
 pub use canonical::{AttackCacheIdentity, EstimatorContext, canonical_json, stable_hash};
 pub use domain::*;
 pub use formats::*;

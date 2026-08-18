@@ -119,9 +119,9 @@ fn coefficient_embedding_preserves_source_and_derives_checked_lwe() {
         },
         dimension: 2,
         samples: SampleCount::Finite { count: 3 },
-        secret: SecretDistribution::FixedWeightTernary {
-            positive_weight: 512,
-            negative_weight: 512,
+        secret: SecretDistribution::SparseTernary {
+            positive_count: 512,
+            negative_count: 512,
         },
         error: gaussian("3.2"),
     });
@@ -228,7 +228,7 @@ fn parameter_set_validation_reports_case_path() {
         "id":"case","name":"Case","problem":{
           "kind":"lwe","dimension":8,"modulus":"16",
           "samples":{"kind":"finite","count":8},
-          "secret":{"kind":"fixed_weight_binary","hamming_weight":9},
+          "secret":{"kind":"sparse_ternary","positive_count":5,"negative_count":4},
           "error":{"kind":"discrete_gaussian","standard_deviation":"1"}
         }
       }]
@@ -256,9 +256,26 @@ fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
     assert_eq!(request.validate().unwrap_err().path, "slow_attack_policy");
 
     request.slow_attack_policy = Some(SlowAttackPolicy {
-        decision_after_seconds: 60,
-        high_security_bits: decimal("128"),
+        decision_after_seconds: 300,
+        required_security_bits: decimal("128"),
+        stop_margin_bits: decimal("16"),
     });
+    request.validate().unwrap();
+
+    request
+        .slow_attack_policy
+        .as_mut()
+        .unwrap()
+        .stop_margin_bits = decimal("-1");
+    assert_eq!(
+        request.validate().unwrap_err().path,
+        "slow_attack_policy.stop_margin_bits"
+    );
+    request
+        .slow_attack_policy
+        .as_mut()
+        .unwrap()
+        .stop_margin_bits = decimal("0");
     request.validate().unwrap();
 
     request.mode = lattice_security::EstimateMode::Rough;
@@ -271,7 +288,7 @@ fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
     .unwrap();
     example.validate().unwrap();
     assert_eq!(
-        example.slow_attack_policy.unwrap().high_security_bits,
+        example.slow_attack_policy.unwrap().required_security_bits,
         decimal("128")
     );
 }

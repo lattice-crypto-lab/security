@@ -10,7 +10,8 @@ The workbench supports:
 - separate tabs for direct estimates, the parameter-set library, run batches,
   and parameter sweeps;
 - direct entry of one or more LWE, RLWE, GLWE, NTRU, or SIS cases in a single
-  batch, with `rough` and `normal` execution modes;
+  batch, with `rough` and `normal` execution modes; the same form can run
+  immediately, save the cases as a named parameter set, or save and run;
 - parameter-set JSON import with explained reject/replace behavior, optional
   immediate run, and confirmed deletion from the library;
 - selecting one, several, or all cases in a parameter set;
@@ -18,13 +19,15 @@ The workbench supports:
 - a desktop master-detail run layout with the batch list on the left and the
   selected batch report on the right, collapsing to one column on small screens;
 - two-second active batch polling and five-second table reconciliation;
-- case and per-attack detail, including cache and fast-estimate markers;
-- bulk cancel, rerun, and report-bundle export;
+- readable case parameter snapshots in both the batch list and detail view,
+  followed by per-attack results, cache markers, and fast-estimate markers;
+- bulk cancel, rerun, report-bundle export, and terminal-batch deletion;
 - one-axis sweep forms for dimension, modulus, Gaussian error standard
   deviation, and finite sample count.
 
-`rough` executes only the fast attacks. `normal` adds adaptive `arora_gb` and
-`bkw` execution. Both modes share the per-attack cache, and concurrent
+`rough` executes fast attacks and uses calibrated slow approximations when
+available. `normal` adds separately timed `arora_gb` and `bkw` execution. Both
+modes share the computed per-attack cache, and concurrent
 identical attack keys are joined through scheduler single-flight even though
 each submission keeps its own batch identity.
 
@@ -34,6 +37,12 @@ historical reports. Deletion removes every stored library version of that
 parameter-set ID. Historical batch requests, reports, and attack-cache entries
 remain available because they are independent snapshots rather than links to
 the mutable library head.
+
+Run history can be deleted individually or in bulk after a batch reaches a
+terminal state. Deletion removes the batch, its jobs, reports, and execution
+attempt audit records. Running/queued batches must be cancelled first. Computed
+and approximation caches are intentionally retained, so deleting history does
+not force identical estimator work to run again.
 
 The public `POST /v1/sweeps` contract supports up to four Cartesian axes and
 10,000 generated cases. Generated cases are split into batches of 500. At most

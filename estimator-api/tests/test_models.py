@@ -114,6 +114,17 @@ def test_fixed_weight_uses_complete_logical_secret_length() -> None:
         EstimateRequest.model_validate_json(json.dumps(source))
 
 
+def test_sparse_ternary_uses_complete_logical_secret_length() -> None:
+    source = request_data()
+    source["problem"]["secret"] = {  # type: ignore[index]
+        "kind": "sparse_ternary",
+        "positive_count": 300,
+        "negative_count": 300,
+    }
+    with pytest.raises(ValidationError, match="logical secret length"):
+        EstimateRequest.model_validate_json(json.dumps(source))
+
+
 def test_ntru_has_fixed_standard_attack_set() -> None:
     source = request_data()
     source["problem"] = {

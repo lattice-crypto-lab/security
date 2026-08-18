@@ -1,0 +1,34 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "ksbs-notebook",
+  "name": "KSBS Notebook 参数方案",
+  "description": "从 ksbs.ipynb 的活动 LWE 估算调用迁移；注释中的 RLWE 字样未改变原调用的 LWE 语义。",
+  "tags": ["migrated", "notebook", "ksbs"],
+  "cases": [
+    {
+      "id": "lwe",
+      "name": "LWE",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 2048,
+        "modulus": "2305843009213693951",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 512, "negative_count": 512 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "408.32" }
+      }
+    },
+    {
+      "id": "ksk",
+      "name": "KSK",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 1024,
+        "modulus": "2305843009213693951",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "58411555225.6" }
+      }
+    }
+  ]
+}

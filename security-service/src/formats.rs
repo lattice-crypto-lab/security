@@ -54,6 +54,8 @@ pub struct SecuritySummary {
     #[serde(default)]
     pub fast_estimate: bool,
     #[serde(default)]
+    pub approximate: bool,
+    #[serde(default)]
     pub warnings: Vec<String>,
 }
 
@@ -133,7 +135,8 @@ pub enum EstimateMode {
 pub struct SlowAttackPolicy {
     #[schemars(range(min = 1, max = 7200))]
     pub decision_after_seconds: u64,
-    pub high_security_bits: ExactDecimal,
+    pub required_security_bits: ExactDecimal,
+    pub stop_margin_bits: ExactDecimal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

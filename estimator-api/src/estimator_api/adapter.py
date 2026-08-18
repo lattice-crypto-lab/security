@@ -33,6 +33,7 @@ from .models import (
     ResultRole,
     SisNorm,
     SisProblem,
+    SparseTernary,
     TextMetric,
     UniformBinary,
     UniformInteger,
@@ -180,6 +181,12 @@ def _distribution(distribution: Any, logical_length: int | None) -> Any:
         return ND.Uniform(0, 1, n=logical_length)
     if isinstance(distribution, UniformTernary):
         return ND.Uniform(-1, 1, n=logical_length)
+    if isinstance(distribution, SparseTernary):
+        return ND.SparseTernary(
+            distribution.positive_count,
+            distribution.negative_count,
+            n=logical_length,
+        )
     if isinstance(distribution, FixedWeightBinary):
         return ND.SparseBinary(distribution.hamming_weight, n=logical_length)
     if isinstance(distribution, FixedWeightTernary):

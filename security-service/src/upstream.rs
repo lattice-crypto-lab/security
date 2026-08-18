@@ -4,8 +4,9 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Attack, EstimatorContext, EstimatorProblem, ExactDecimal, NormalizedMetric, ReductionCostModel,
-    ReductionShapeModel, ResolvedAnalysisSettings, error::ServiceError,
+    ApproximationMetadata, Attack, EstimatorContext, EstimatorProblem, ExactDecimal,
+    NormalizedMetric, ReductionCostModel, ReductionShapeModel, ResolvedAnalysisSettings,
+    error::ServiceError,
 };
 
 #[derive(Clone)]
@@ -26,6 +27,8 @@ pub struct Metadata {
     pub support_matrix: serde_json::Value,
     pub dependency_graph: serde_json::Value,
     pub adaptive_attacks: Vec<Attack>,
+    #[serde(default)]
+    pub approximation: ApproximationMetadata,
 }
 
 impl Metadata {

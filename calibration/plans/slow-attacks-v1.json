@@ -1,0 +1,17 @@
+{
+  "format": "lattice-security/slow-attack-calibration-plan",
+  "version": 1,
+  "attacks": ["arora_gb", "bkw"],
+  "timeout_seconds": 3600,
+  "models": [
+    { "cost_model": "BDGL16", "shape_model": "GSA" },
+    { "cost_model": "LaaMosPol14", "shape_model": "GSA" }
+  ],
+  "axes": {
+    "dimension": [128, 192, 256, 384, 512, 768, 1024],
+    "modulus": ["4096", "65536", "16777216", "4294967296"],
+    "samples": [{ "kind": "unlimited" }],
+    "secret": [{ "kind": "uniform_binary" }, { "kind": "uniform_ternary" }],
+    "error_standard_deviation": ["2", "3.2", "4", "6.4"]
+  }
+}

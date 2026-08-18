@@ -59,6 +59,12 @@ class UniformTernary(StrictModel):
     kind: Literal["uniform_ternary"]
 
 
+class SparseTernary(StrictModel):
+    kind: Literal["sparse_ternary"]
+    positive_count: NonNegativeU64
+    negative_count: NonNegativeU64
+
+
 class FixedWeightBinary(StrictModel):
     kind: Literal["fixed_weight_binary"]
     hamming_weight: NonNegativeU64
@@ -102,6 +108,7 @@ class UniformInteger(StrictModel):
 SecretDistribution: TypeAlias = Annotated[
     UniformBinary
     | UniformTernary
+    | SparseTernary
     | FixedWeightBinary
     | FixedWeightTernary
     | DiscreteGaussian
@@ -232,6 +239,7 @@ DEPENDENCY_GRAPH = {
 EXACT_DISTRIBUTIONS = (
     "uniform_binary",
     "uniform_ternary",
+    "sparse_ternary",
     "fixed_weight_binary",
     "fixed_weight_ternary",
     "discrete_gaussian",
@@ -417,6 +425,11 @@ def _require_modulus(value: str) -> None:
 
 
 def _require_secret_length(secret: SecretDistribution, logical_length: int) -> None:
+    if (
+        isinstance(secret, SparseTernary)
+        and secret.positive_count + secret.negative_count > logical_length
+    ):
+        raise ValueError("sparse ternary counts exceed logical secret length")
     if isinstance(secret, FixedWeightBinary) and secret.hamming_weight > logical_length:
         raise ValueError("fixed binary weight exceeds logical secret length")
     if (

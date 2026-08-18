@@ -43,17 +43,17 @@ warning. The mapping uses checked arithmetic.
 - Standard NTRU: `usvp`, `dsd`, `bdd`, `bdd_hybrid`, `bdd_mitm_hybrid`.
 - SIS: `lattice`.
 
-`arora_gb` and `bkw` remain public attacks. Each LWE-derived run supplies an
-explicit `decision_after_seconds` and `high_security_bits` threshold. The fast
-estimate is the minimum of the six computed fast attacks. At the decision time,
-unfinished slow attacks are cancelled when that minimum is at least the
-threshold; otherwise they continue until completion or the overall timeout.
-Cancelled slow attacks are `skipped`, are not cached, and make the report
-incomplete with `fast_estimate=true`. A slow result that finishes before the
+`arora_gb` and `bkw` remain public attacks and run in separate estimator plans.
+Each LWE-derived run supplies `decision_after_seconds`,
+`required_security_bits`, and `stop_margin_bits`. The timer applies separately
+to each slow attack. At its decision time, an unfinished attack is cancelled
+only when its calibrated conservative approximation is available and is at
+least `required_security_bits + stop_margin_bits`; otherwise it continues until
+completion or the overall timeout. A computed result that finishes before the
 decision is retained and cached normally.
 
-Outcomes are limited to `computed`, `timeout`, `unsupported`, `failed`, and
-policy `skipped`.
+Outcomes include `computed`, calibrated `approximate`, `timeout`, `unsupported`,
+`failed`, and policy `skipped`.
 A complete report means every attack in the fixed set has a computed result.
 The case security level is the minimum computed security-bit value and records
 the corresponding attack.

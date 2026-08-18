@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice Security</title>
-  <link rel="stylesheet" href="/assets/app.css?v=3">
+  <link rel="stylesheet" href="/assets/app.css?v=6">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
-  <script defer src="/assets/app.js?v=3"></script>
+  <script defer src="/assets/app.js?v=6"></script>
 </head>
 <body>
   <header class="topbar">
@@ -25,6 +25,7 @@
       <div class="overview-metrics">
         <span><strong>{{ parameter_sets.len() }}</strong> 个方案</span>
         <span><strong>{{ batches.len() }}</strong> 个最近批次</span>
+        <span class="model-status">{{ approximation_status }}</span>
       </div>
     </section>
 
@@ -46,33 +47,48 @@
           <div class="form-row estimate-policy">
             <label>测试方式
               <select name="mode" data-estimate-mode>
-                <option value="rough">粗略测试 · 仅快速攻击</option>
-                <option value="normal" selected>正常测试 · 完整攻击集</option>
+                <option value="rough">粗略测试 · 快速攻击 + 校准近似</option>
+                <option value="normal" selected>正常测试 · 优先真实慢攻击</option>
               </select>
-              <small class="field-note">粗略测试跳过 arora_gb 和 bkw；正常测试会复用已有快速结果并继续慢攻击。</small>
+              <small class="field-note">粗略测试不运行 arora_gb 和 bkw，但会在校准域内使用保守近似；正常测试会复用缓存并继续真实慢攻击。</small>
             </label>
             <label>总超时（秒）
               <input name="timeout_seconds" type="number" min="2" max="7200" value="3600" required>
-              <small class="field-note">单个 case 的最长执行时间。</small>
+              <small class="field-note">单个 case 的总时间，包含快速攻击以及依次运行的两项慢攻击。</small>
             </label>
             <label data-slow-policy>慢攻击判断时间（秒）
-              <input name="decision_after_seconds" type="number" min="1" max="7199" value="60" required>
-              <small class="field-note">慢攻击运行到这个时间后，服务判断是否值得继续等待。</small>
+              <input name="decision_after_seconds" type="number" min="1" max="7199" value="300" required>
+              <small class="field-note">arora_gb、bkw 各自独立运行到这个时间后进行判断。</small>
             </label>
-            <label data-slow-policy>高安全阈值（bit）
-              <input name="high_security_bits" value="128" inputmode="decimal" required>
-              <small class="field-note">快速结果不低于此值时，服务可提前停止仍未完成的慢攻击。</small>
+            <label data-slow-policy>期望安全（bit）
+              <input name="required_security_bits" value="128" inputmode="decimal" required>
+              <small class="field-note">方案希望达到的最低安全等级。</small>
+            </label>
+            <label data-slow-policy>提前停止余量（bit）
+              <input name="stop_margin_bits" value="16" inputmode="decimal" required>
+              <small class="field-note">保守近似至少达到“期望安全 + 此余量”才允许停止。</small>
             </label>
           </div>
           <div class="policy-explainer" data-slow-policy>
             <strong>慢攻击判断是什么意思？</strong>
-            <p>正常测试先完成快速攻击，同时运行 arora_gb 和 bkw。到达决策时间后，如果当前最低安全 bit 已达到高安全阈值，就终止尚未完成的慢攻击；低于阈值则继续等待，直到完成或达到总超时。</p>
+            <p>正常测试先完成快速攻击，再分别运行 arora_gb 和 bkw。每项达到判断时间后，只有该攻击存在校准域内的保守近似，且近似值至少达到“期望安全 + 停止余量”，才会终止该项并采用近似；近似缺失、越界或不足时继续等待真实结果，直到完成或达到总超时。</p>
           </div>
           <div class="quick-case-list" data-quick-case-list></div>
           <input type="hidden" name="cases_json" data-quick-cases-json>
+          <div class="quick-save-panel">
+            <div><strong>保存为参数集（可选）</strong><small class="field-note">点击“保存到方案库”或“保存并估算”时需要填写；直接估算时可以留空。</small></div>
+            <div class="quick-grid">
+              <label>方案 ID<input name="parameter_set_id" pattern="[A-Za-z0-9._-]+" maxlength="128" placeholder="例如 babybear-v2"></label>
+              <label>方案名称<input name="parameter_set_name" placeholder="例如 BabyBear 参数方案"></label>
+              <label>冲突策略<select name="conflict"><option value="reject">ID 已存在时拒绝</option><option value="replace">保存为新版本</option></select></label>
+              <label>方案说明<input name="parameter_set_description" placeholder="可选"></label>
+            </div>
+          </div>
           <div class="quick-actions">
             <button type="button" data-add-quick-case>＋ 添加一组参数</button>
-            <button class="primary" type="submit">开始安全估算</button>
+            <button type="submit" name="action" value="save">保存到方案库</button>
+            <button type="submit" name="action" value="run">直接开始估算</button>
+            <button class="primary" type="submit" name="action" value="save_run">保存并开始估算</button>
           </div>
         </form>
       </article>
@@ -105,7 +121,8 @@
         <div class="distribution-grid" data-problems="lwe rlwe glwe ntru">
           <fieldset>
             <legend>私钥分布</legend>
-            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
+            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="sparse_ternary">sparse ternary</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
+            <div class="quick-grid" data-secret="sparse_ternary"><label>+1 数量<input data-field="secret_positive_count" type="number" min="0" step="1" value="256" required></label><label>-1 数量<input data-field="secret_negative_count" type="number" min="0" step="1" value="256" required></label></div>
             <label data-secret="fixed_weight_binary">Hamming weight<input data-field="secret_hamming_weight" type="number" min="0" step="1" value="64" required></label>
             <div class="quick-grid" data-secret="fixed_weight_ternary"><label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label><label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label></div>
             <label data-secret="discrete_gaussian">标准差 σ<input data-field="secret_standard_deviation" value="3.2" inputmode="decimal" required></label>
@@ -140,8 +157,9 @@
             <label class="check"><input type="checkbox" name="run_all" value="yes"> 导入后立即运行全部 case</label>
             <div class="form-row compact">
               <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
-              <label>慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
-              <label>高安全阈值<input name="high_security_bits" value="128"></label>
+              <label>每项慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="300"></label>
+              <label>期望安全<input name="required_security_bits" value="128"></label>
+              <label>停止余量<input name="stop_margin_bits" value="16"></label>
             </div>
             <small class="field-note">上面的运行策略仅在勾选“导入后立即运行”时生效；规则与安全估算页的正常测试相同。</small>
             <button class="primary" type="submit">导入方案</button>
@@ -181,6 +199,7 @@
               <button formaction="/ui/batches/bulk-cancel" formmethod="post">取消</button>
               <button formaction="/ui/batches/bulk-rerun" formmethod="post">重跑</button>
               <button formaction="/ui/batches/bulk-export" formmethod="post">导出</button>
+              <button class="danger-button" formaction="/ui/batches/bulk-delete" formmethod="post" data-confirm-submit="确定删除选中的已结束批次吗？任务、报告和执行记录将被删除，但攻击缓存会保留。">删除</button>
             </form>
             <div id="batch-list" hx-get="/ui/batches" hx-trigger="every 5s" hx-include="#batch-filters">{% include "batch_table.html" %}</div>
           </aside>
@@ -197,8 +216,8 @@
         <form method="post" action="/ui/sweeps" class="stack">
           <textarea name="base_case" rows="10" required placeholder="粘贴一个 ParameterCase JSON"></textarea>
           <div class="form-row"><label>扫描轴<select name="axis"><option value="dimension">dimension</option><option value="modulus">modulus</option><option value="error_standard_deviation">error standard deviation</option><option value="sample_count">sample count</option></select></label><label>值（逗号或换行）<textarea name="values" rows="3" required placeholder="512, 768, 1024"></textarea></label></div>
-          <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label><label>高安全阈值<input name="high_security_bits" value="128"></label></div>
-          <div class="policy-explainer"><strong>慢攻击策略</strong><p>每个生成的 case 都执行正常测试：快速结果达到阈值时，可在决策时间后停止尚未完成的 arora_gb 和 bkw。</p></div>
+          <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>每项慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="300"></label><label>期望安全<input name="required_security_bits" value="128"></label><label>停止余量<input name="stop_margin_bits" value="16"></label></div>
+          <div class="policy-explainer"><strong>慢攻击策略</strong><p>每个 case 分别运行 arora_gb 和 bkw；只有对应保守近似达到“期望安全 + 停止余量”时，才会在判断时间后停止该项。</p></div>
           <button class="primary" type="submit">生成并运行 sweep</button>
         </form>
       </article>

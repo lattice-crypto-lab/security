@@ -22,6 +22,7 @@ RUN sage -pip install --no-cache-dir --require-hashes \
 # Preserve the complete pinned LGPLv3+ upstream source and its version notice.
 COPY --chown=sage:sage estimator/ /app/estimator/
 COPY --chown=sage:sage estimator-api/src/ /app/estimator-api/src/
+COPY --chown=sage:sage estimator-api/tools/phase4_calibration.py /app/estimator-api/tools/phase4_calibration.py
 COPY --chown=sage:sage estimator-api/THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 
 EXPOSE 8000

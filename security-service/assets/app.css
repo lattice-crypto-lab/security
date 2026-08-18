@@ -66,6 +66,7 @@ footer { padding: 28px; color: var(--muted); text-align: center; }
 .overview-metrics { display: flex; gap: 10px; }
 .overview-metrics span { min-width: 112px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 11px; background: #fafcf9; }
 .overview-metrics strong { color: var(--ink); font-size: 1.25rem; }
+.overview-metrics .model-status { display: grid; align-items: center; max-width: 190px; color: var(--ink); font-size: 0.72rem; font-weight: 750; }
 
 .workspace-tabs {
   position: sticky;
@@ -120,6 +121,7 @@ button:hover, .back:hover { filter: brightness(0.97); }
 .distribution-grid fieldset { display: grid; align-content: start; gap: 10px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; }
 .distribution-grid legend { padding: 0 6px; color: var(--accent-dark); font-size: 0.78rem; font-weight: 800; }
 .quick-actions { justify-content: flex-end; }
+.quick-save-panel { display: grid; gap: 12px; padding: 14px; border: 1px dashed #9eaca6; border-radius: 11px; background: #fcfdfb; }
 .is-hidden { display: none !important; }
 
 .scheme-layout { display: grid; grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.4fr); gap: 18px; }
@@ -152,6 +154,7 @@ button:hover, .back:hover { filter: brightness(0.97); }
 .batch-list-metrics { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .batch-list-metrics span { color: var(--muted); font-size: 0.75rem; }
 .batch-detail-button small { overflow: hidden; color: var(--muted); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.batch-detail-button .batch-case-summary { overflow-wrap: anywhere; white-space: normal; }
 .state { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #edf1ee; font-size: 0.68rem; font-weight: 800; }
 .state-running, .state-queued { background: var(--warn); }
 .state-completed { background: var(--accent); }
@@ -160,13 +163,23 @@ button:hover, .back:hover { filter: brightness(0.97); }
 .detail-panel { min-width: 0; min-height: 420px; }
 .detail-card { padding: 20px; border: 1px solid var(--line); border-radius: 13px; background: #fafcf9; }
 .detail-card .section-heading h2 { max-width: min(100%, 720px); overflow-wrap: anywhere; }
-.job-strip, .attack-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 8px; }
+.detail-heading-actions { display: grid; justify-items: end; gap: 8px; }
+.detail-heading-actions small { max-width: 220px; color: var(--muted); font-size: 0.7rem; text-align: right; }
+.job-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; }
+.attack-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 8px; }
 .job-strip > div, .attack { display: grid; min-width: 0; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: white; }
 .job-strip small, .attack small { color: var(--muted); overflow-wrap: anywhere; }
+.job-strip > div > span:first-child small { display: block; margin-top: 3px; }
+.job-strip .state { justify-self: start; }
+.subsection-title { margin: 18px 0 9px; font-size: 0.9rem; }
+.parameter-primary { margin: 4px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.78rem; overflow-wrap: anywhere; }
+.parameter-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; background: #eef3ef; font-size: 0.76rem; overflow-wrap: anywhere; }
+.parameter-summary span { color: var(--muted); }
 .case-report { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .case-report summary { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; cursor: pointer; }
 .case-report summary small { display: block; color: var(--muted); }
 .attack strong { font-size: 1.25rem; }
+.attack-approximate { border-color: #d2bd66; background: #fff9df; }
 
 .split { display: grid; grid-template-columns: 0.7fr 1.3fr; gap: 28px; }
 .case-list { display: grid; gap: 8px; margin: 18px 0; }

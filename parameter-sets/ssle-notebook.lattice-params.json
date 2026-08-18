@@ -1,0 +1,82 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "ssle-notebook",
+  "name": "SSLE 参数方案（Notebook）",
+  "description": "从 ssle.ipynb 的活动 SMART_EXACT 调用迁移；其 SSLE 2–4 噪声与 ssle.py 不同，因此独立保留。",
+  "tags": ["migrated", "notebook", "ssle"],
+  "cases": [
+    {
+      "id": "commit-1",
+      "name": "Commit 1",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 512,
+        "modulus": "12289",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 128, "negative_count": 128 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "3.7" }
+      }
+    },
+    {
+      "id": "commit-3",
+      "name": "Commit 3",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 1024,
+        "modulus": "40961",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 256, "negative_count": 256 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
+      }
+    },
+    {
+      "id": "ssle-1",
+      "name": "SSLE 1",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 4096,
+        "modulus": "1267650599969977236268072599553",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
+      }
+    },
+    {
+      "id": "ssle-2",
+      "name": "SSLE 2",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 4096,
+        "modulus": "649033470896967801447398927572993",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "6.4" }
+      }
+    },
+    {
+      "id": "ssle-3",
+      "name": "SSLE 3",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 4096,
+        "modulus": "1298070268741604259594248958689281",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "12.79" }
+      }
+    },
+    {
+      "id": "ssle-4",
+      "name": "SSLE 4",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 4096,
+        "modulus": "2596139918495516923224825790013441",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "25.57" }
+      }
+    }
+  ]
+}

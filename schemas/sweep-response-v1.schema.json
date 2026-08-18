@@ -172,6 +172,84 @@
         "security_model"
       ]
     },
+    "ApproximationProvenance": {
+      "type": "object",
+      "properties": {
+        "adapter_version": {
+          "type": "string"
+        },
+        "dataset_hash": {
+          "type": "string"
+        },
+        "estimator_commit": {
+          "type": "string"
+        },
+        "feature_schema": {
+          "type": "string"
+        },
+        "holdout_max_overestimate_bits": {
+          "$ref": "#/$defs/ExactDecimal"
+        },
+        "holdout_mean_absolute_error_bits": {
+          "$ref": "#/$defs/ExactDecimal"
+        },
+        "holdout_p95_absolute_error_bits": {
+          "$ref": "#/$defs/ExactDecimal"
+        },
+        "holdout_samples": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "model_hash": {
+          "type": "string"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "model_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "platform": {
+          "type": "string"
+        },
+        "safety_margin_bits": {
+          "$ref": "#/$defs/ExactDecimal"
+        },
+        "sage_version": {
+          "type": "string"
+        },
+        "training_points": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "worker_image": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "model_version",
+        "model_hash",
+        "dataset_hash",
+        "feature_schema",
+        "estimator_commit",
+        "sage_version",
+        "adapter_version",
+        "worker_image",
+        "platform",
+        "training_points",
+        "holdout_samples",
+        "holdout_mean_absolute_error_bits",
+        "holdout_p95_absolute_error_bits",
+        "holdout_max_overestimate_bits",
+        "safety_margin_bits"
+      ]
+    },
     "Attack": {
       "type": "string",
       "enum": [
@@ -217,6 +295,27 @@
             "kind",
             "security_bits",
             "duration_ms"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "approximate"
+            },
+            "provenance": {
+              "$ref": "#/$defs/ApproximationProvenance"
+            },
+            "security_bits": {
+              "$ref": "#/$defs/ExactDecimal"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "security_bits",
+            "provenance"
           ]
         },
         {
@@ -1129,6 +1228,31 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sparse_ternary"
+            },
+            "negative_count": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "positive_count": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "positive_count",
+            "negative_count"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
             "hamming_weight": {
               "type": "integer",
               "format": "uint64",
@@ -1314,6 +1438,10 @@
     "SecuritySummary": {
       "type": "object",
       "properties": {
+        "approximate": {
+          "type": "boolean",
+          "default": false
+        },
         "best_attack": {
           "anyOf": [
             {

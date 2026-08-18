@@ -40,6 +40,37 @@ services:
     cpus: "${ESTIMATOR_CPUS:-2.0}"
     mem_limit: "${ESTIMATOR_MEMORY:-4g}"
 
+  calibration:
+    # 阶段 4 的一次性校准工具。它属于 `calibration` profile，普通的
+    # `docker compose up -d` 不会创建第三个常驻容器。
+    platform: linux/amd64
+    image: ghcr.io/lattice-crypto-lab/estimator-api:${ESTIMATOR_API_VERSION:-latest}
+    profiles:
+      - calibration
+    depends_on:
+      estimator-api:
+        condition: service_healthy
+    entrypoint:
+      - sage
+      - -python
+      - /app/estimator-api/tools/phase4_calibration.py
+    # 计划文件从 calibration/plans 读取，断点续跑数据写入 calibration/output。
+    volumes:
+      - ./calibration:/calibration
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /home/sage/.cache:size=64m,uid=1000,gid=1000
+      - /home/sage/.sage:size=64m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${CALIBRATION_CPUS:-1.0}"
+    mem_limit: "${CALIBRATION_MEMORY:-1g}"
+
   security-service:
     platform: linux/amd64
     image: ghcr.io/lattice-crypto-lab/security-service:${SECURITY_SERVICE_VERSION:-latest}
@@ -52,6 +83,9 @@ services:
       ESTIMATOR_API_URL: http://estimator-api:8000/
       LATTICE_SECURITY_BIND: 0.0.0.0:8080
       LATTICE_SECURITY_DATABASE: /var/lib/lattice-security/lattice-security.db
+      # 阶段 4 的慢攻击近似模型随 security-service 镜像发布；通常不需要修改。
+      # 模型缺失或参数超出校准域时，服务不会给出未经校准的 approximate 结果。
+      LATTICE_SECURITY_APPROXIMATION_MODEL: /usr/share/lattice-security/models/slow-attacks-v1.json
       # 留空表示不认证；设置后 Web 登录和 JSON API 都必须使用同一个 Token。
       # 对局域网开放端口时强烈建议配置，并同时使用防火墙限制访问来源。
       LATTICE_SECURITY_API_TOKEN: "${LATTICE_SECURITY_API_TOKEN:-}"

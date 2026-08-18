@@ -21,9 +21,11 @@ RUN groupadd --system --gid 10001 lattice-security \
     && chown lattice-security:lattice-security /var/lib/lattice-security
 
 COPY --from=builder /build/security-service/target/release/security-service /usr/local/bin/security-service
+COPY security-service/models/ /usr/share/lattice-security/models/
 
 ENV LATTICE_SECURITY_BIND=0.0.0.0:8080 \
     LATTICE_SECURITY_DATABASE=/var/lib/lattice-security/lattice-security.db \
+    LATTICE_SECURITY_APPROXIMATION_MODEL=/usr/share/lattice-security/models/slow-attacks-v1.json \
     ESTIMATOR_API_URL=http://estimator-api:8000/ \
     RUST_LOG=info
 

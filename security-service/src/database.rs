@@ -232,6 +232,36 @@ impl Database {
         .await
     }
 
+    pub async fn list_batches_with_requests(
+        &self,
+        limit: usize,
+        poll_after_seconds: u64,
+    ) -> DbResult<Vec<(BatchSnapshot, EstimateRequest)>> {
+        self.call(move |connection| {
+            let mut statement = connection
+                .prepare("SELECT id,request_json FROM batches ORDER BY updated_at DESC LIMIT ?1")
+                .map_err(ServiceError::database)?;
+            let rows = statement
+                .query_map(
+                    [i64::try_from(limit).map_err(ServiceError::database)?],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .map_err(ServiceError::database)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(ServiceError::database)?;
+            drop(statement);
+            rows.into_iter()
+                .map(|(id, request)| {
+                    Ok((
+                        load_batch(connection, &id, poll_after_seconds)?,
+                        from_json(&request)?,
+                    ))
+                })
+                .collect()
+        })
+        .await
+    }
+
     pub async fn job(&self, job_id: &str) -> DbResult<JobSnapshot> {
         let job_id = job_id.to_owned();
         self.call(move |connection| load_job(connection, &job_id))
@@ -519,6 +549,48 @@ impl Database {
         .await
     }
 
+    pub async fn delete_batches(&self, batch_ids: Vec<String>) -> DbResult<()> {
+        self.call(move |connection| {
+            let transaction = connection.transaction().map_err(ServiceError::database)?;
+            for batch_id in &batch_ids {
+                let state = transaction
+                    .query_row(
+                        "SELECT state_kind FROM batches WHERE id=?1",
+                        [batch_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(ServiceError::database)?
+                    .ok_or_else(|| ServiceError::NotFound("batch not found".to_owned()))?;
+                if !matches!(
+                    state.as_str(),
+                    "completed" | "partial" | "timed_out" | "cancelled" | "failed"
+                ) {
+                    return Err(ServiceError::Conflict(format!(
+                        "batch '{batch_id}' is not finished; cancel it before deleting"
+                    )));
+                }
+            }
+            for batch_id in &batch_ids {
+                transaction
+                    .execute(
+                        "DELETE FROM execution_attempts WHERE job_id IN (SELECT id FROM jobs WHERE batch_id=?1)",
+                        [batch_id],
+                    )
+                    .map_err(ServiceError::database)?;
+                transaction
+                    .execute("DELETE FROM jobs WHERE batch_id=?1", [batch_id])
+                    .map_err(ServiceError::database)?;
+                transaction
+                    .execute("DELETE FROM batches WHERE id=?1", [batch_id])
+                    .map_err(ServiceError::database)?;
+            }
+            transaction.commit().map_err(ServiceError::database)?;
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn request_cancel(&self, batch_id: &str) -> DbResult<BatchSnapshot> {
         let batch_id = batch_id.to_owned();
         self.call(move |connection| {
@@ -599,6 +671,43 @@ impl Database {
             ).map_err(ServiceError::database)?;
             Ok(())
         }).await
+    }
+
+    pub async fn cached_approximation(&self, key: &str) -> DbResult<Option<CachedOutcome>> {
+        let key = key.to_owned();
+        self.call(move |connection| {
+            let value = connection
+                .query_row(
+                    "SELECT outcome_json FROM approximation_cache WHERE cache_key=?1",
+                    [key],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(ServiceError::database)?;
+            value
+                .map(|value| from_json(&value).map(|outcome| CachedOutcome { outcome }))
+                .transpose()
+        })
+        .await
+    }
+
+    pub async fn put_cached_approximation(
+        &self,
+        key: String,
+        attack: crate::Attack,
+        outcome: AttackOutcome,
+        model_hash: String,
+    ) -> DbResult<()> {
+        self.call(move |connection| {
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO approximation_cache (cache_key,attack,outcome_json,model_hash,created_at) VALUES (?1,?2,?3,?4,?5)",
+                    params![key, json(&attack)?, json(&outcome)?, model_hash, now()],
+                )
+                .map_err(ServiceError::database)?;
+            Ok(())
+        })
+        .await
     }
 
     pub async fn import_parameter_set(
@@ -735,6 +844,9 @@ fn initialize(connection: Connection) -> DbResult<Connection> {
          CREATE TABLE IF NOT EXISTS attack_cache (
             cache_key TEXT PRIMARY KEY, attack TEXT NOT NULL, outcome_json TEXT NOT NULL,
             estimator_context_json TEXT NOT NULL, created_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS approximation_cache (
+            cache_key TEXT PRIMARY KEY, attack TEXT NOT NULL, outcome_json TEXT NOT NULL,
+            model_hash TEXT NOT NULL, created_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS execution_attempts (
             id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id), attempt INTEGER NOT NULL,
             state_kind TEXT NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT,
@@ -757,6 +869,12 @@ fn initialize(connection: Connection) -> DbResult<Connection> {
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2)",
+            [],
+        )
+        .map_err(ServiceError::database)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (3)",
             [],
         )
         .map_err(ServiceError::database)?;

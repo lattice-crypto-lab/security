@@ -40,6 +40,8 @@ document.addEventListener("click", (event) => {
 document.addEventListener("submit", (event) => {
   const form = event.target.closest("[data-confirm]");
   if (form && !window.confirm(form.dataset.confirm)) event.preventDefault();
+  const message = event.submitter?.dataset.confirmSubmit;
+  if (message && !window.confirm(message)) event.preventDefault();
 });
 
 document.addEventListener("submit", (event) => {
@@ -160,6 +162,12 @@ function sampleValue(row) {
 function secretValue(row) {
   const kind = quickField(row, "secret_kind").value;
   switch (kind) {
+    case "sparse_ternary":
+      return {
+        kind,
+        positive_count: integerValue(row, "secret_positive_count"),
+        negative_count: integerValue(row, "secret_negative_count"),
+      };
     case "fixed_weight_binary":
       return { kind, hamming_weight: integerValue(row, "secret_hamming_weight") };
     case "fixed_weight_ternary":
@@ -305,6 +313,16 @@ document.addEventListener("submit", (event) => {
     event.preventDefault();
     window.alert("同一次估算中的 Case ID 不能重复。");
     return;
+  }
+  const action = event.submitter?.value || "run";
+  if (["save", "save_run"].includes(action)) {
+    const parameterSetId = form.elements.namedItem("parameter_set_id").value.trim();
+    const parameterSetName = form.elements.namedItem("parameter_set_name").value.trim();
+    if (!parameterSetId || !parameterSetName) {
+      event.preventDefault();
+      window.alert("保存参数集时，请填写方案 ID 和方案名称。");
+      return;
+    }
   }
   form.querySelector("[data-quick-cases-json]").value = JSON.stringify(cases);
 });

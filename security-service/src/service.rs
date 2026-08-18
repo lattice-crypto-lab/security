@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    SecurityReportFile,
+    ApproximationEngine, SecurityReportFile,
     database::Database,
     error::ServiceError,
     scheduler::{Scheduler, SchedulerHandle},
@@ -20,6 +20,7 @@ pub struct AppConfig {
     pub estimator_url: String,
     pub poll_after_seconds: u64,
     pub api_token: Option<String>,
+    pub approximation_model_path: Option<PathBuf>,
 }
 
 impl AppConfig {
@@ -36,6 +37,9 @@ impl AppConfig {
             api_token: std::env::var("LATTICE_SECURITY_API_TOKEN")
                 .ok()
                 .filter(|value| !value.is_empty()),
+            approximation_model_path: std::env::var_os("LATTICE_SECURITY_APPROXIMATION_MODEL")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
         })
     }
 }
@@ -145,8 +149,14 @@ impl AppState {
     pub async fn start(config: &AppConfig) -> Result<Arc<Self>, ServiceError> {
         let database = Database::open(&config.database_path)?;
         let upstream = EstimatorClient::new(&config.estimator_url)?;
-        let metadata = upstream.metadata().await?;
-        let (scheduler, handle) = Scheduler::new(database.clone(), upstream, metadata.clone());
+        let mut metadata = upstream.metadata().await?;
+        let approximation = ApproximationEngine::load(
+            config.approximation_model_path.as_deref(),
+            &metadata.context(),
+        )?;
+        metadata.approximation = approximation.metadata();
+        let (scheduler, handle) =
+            Scheduler::new(database.clone(), upstream, metadata.clone(), approximation);
         let state = Arc::new(Self {
             database,
             scheduler: handle,

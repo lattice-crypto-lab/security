@@ -1,0 +1,44 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "babybear",
+  "name": "BabyBear 参数方案",
+  "description": "从 babybear.py 的有效估算调用迁移；RLWE case 使用显式 coefficient_embedding_v1 模型。",
+  "tags": ["migrated", "python", "babybear"],
+  "cases": [
+    {
+      "id": "lwe",
+      "name": "BabyBear LWE",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 728,
+        "modulus": "2013265921",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "11000" }
+      }
+    },
+    {
+      "id": "rlwe",
+      "name": "BabyBear RLWE",
+      "problem": {
+        "kind": "rlwe",
+        "negacyclic_ring": {
+          "polynomial_degree": 1024,
+          "ciphertext_modulus": "2013265921"
+        },
+        "samples": { "kind": "unlimited" },
+        "secret": {
+          "kind": "sparse_ternary",
+          "positive_count": 256,
+          "negative_count": 256
+        },
+        "error": { "kind": "discrete_gaussian", "standard_deviation": "41.9" }
+      },
+      "analysis": {
+        "security_model": "classical",
+        "reduction_model": "coefficient_embedding_v1"
+      }
+    }
+  ]
+}

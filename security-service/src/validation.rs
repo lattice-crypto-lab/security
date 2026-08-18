@@ -147,6 +147,16 @@ impl Validate for SecurityReportFile {
                     "a fast estimate cannot be marked complete",
                 ));
             }
+            let approximate = report
+                .attacks
+                .iter()
+                .any(|result| matches!(result.outcome, AttackOutcome::Approximate { .. }));
+            if report.summary.approximate != approximate {
+                return Err(ValidationError::new(
+                    format!("reports[{index}].summary.approximate"),
+                    "approximate must match the attack outcomes",
+                ));
+            }
         }
         Ok(())
     }
@@ -186,10 +196,16 @@ impl Validate for EstimateRequest {
                     "decision time must be positive and less than the run timeout",
                 ));
             }
-            if !policy.high_security_bits.is_positive() {
+            if !policy.required_security_bits.is_positive() {
                 return Err(ValidationError::new(
-                    "slow_attack_policy.high_security_bits",
-                    "high-security threshold must be positive",
+                    "slow_attack_policy.required_security_bits",
+                    "required security must be positive",
+                ));
+            }
+            if policy.stop_margin_bits.as_str().starts_with('-') {
+                return Err(ValidationError::new(
+                    "slow_attack_policy.stop_margin_bits",
+                    "stop margin cannot be negative",
                 ));
             }
         }
@@ -355,6 +371,20 @@ fn validate_secret(
     path: &str,
 ) -> Result<(), ValidationError> {
     match distribution {
+        SecretDistribution::SparseTernary {
+            positive_count,
+            negative_count,
+        } => {
+            if positive_count
+                .checked_add(*negative_count)
+                .is_none_or(|count| count > logical_length)
+            {
+                return Err(ValidationError::new(
+                    path,
+                    "sparse ternary counts exceed secret length",
+                ));
+            }
+        }
         SecretDistribution::FixedWeightBinary { hamming_weight } => {
             if *hamming_weight > logical_length {
                 return Err(ValidationError::new(

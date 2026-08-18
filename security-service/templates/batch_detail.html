@@ -1,12 +1,14 @@
 <article class="detail-card"{% if !batch.terminal %} hx-get="/ui/batches/{{ batch.id }}/detail" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-  <div class="section-heading"><div><p class="eyebrow">BATCH DETAIL</p><h2>{{ batch.id }}</h2></div><span class="state state-{{ batch.state }}">{{ batch.state }}</span></div>
+  <div class="section-heading"><div><p class="eyebrow">BATCH DETAIL</p><h2>{{ batch.id }}</h2></div><div class="detail-heading-actions"><span class="state state-{{ batch.state }}">{{ batch.state }}</span>{% if batch.terminal %}<form method="post" action="/ui/batches/{{ batch.id }}/delete" data-confirm="确定删除这个运行批次吗？任务、报告和执行记录将被删除，但攻击缓存会保留。"><button class="danger-button compact-button" type="submit">删除批次</button></form>{% else %}<small>运行中的批次需先取消，结束后才能删除</small>{% endif %}</div></div>
   <p class="muted">revision {{ batch.revision }} · updated {{ batch.updated_at }}</p>
+  <h3 class="subsection-title">本批次参数</h3>
   <div class="job-strip">
-  {% for job in jobs %}<div><span class="mono">{{ job.case_id }}</span><strong>{{ job.state }}</strong><small>{{ job.attempts }} attempts · {{ job.id }}</small></div>{% endfor %}
+  {% for job in jobs %}<div><span><strong>{{ job.case_name }}</strong><small class="mono">{{ job.case_id }}</small></span><span class="state state-{{ job.state }}">{{ job.state }}</span><p class="parameter-primary">{{ job.parameters.primary }}</p>{% if !job.parameters.secret.is_empty() %}<small>{{ job.parameters.secret }}</small>{% endif %}{% if !job.parameters.error.is_empty() %}<small>{{ job.parameters.error }}</small>{% endif %}<small>{{ job.attempts }} attempts · job {{ job.id }}</small></div>{% endfor %}
   </div>
   {% for report in reports %}
   <details class="case-report" open>
-    <summary><span><strong>{{ report.case_name }}</strong><small class="mono">{{ report.case_id }}</small></span><span>{{ report.security }} bit{% if report.fast_estimate %} · fast estimate{% endif %}{% if report.complete %} · complete{% endif %}</span></summary>
+    <summary><span><strong>{{ report.case_name }}</strong><small class="mono">{{ report.case_id }}</small></span><span>{{ report.security }} bit{% if report.fast_estimate %} · fast estimate{% endif %}{% if report.approximate %} · calibrated approximation{% endif %}{% if report.complete %} · complete{% endif %}</span></summary>
+    <div class="parameter-summary"><strong>{{ report.parameters.primary }}</strong>{% if !report.parameters.secret.is_empty() %}<span>{{ report.parameters.secret }}</span>{% endif %}{% if !report.parameters.error.is_empty() %}<span>{{ report.parameters.error }}</span>{% endif %}</div>
     <div class="attack-grid">
     {% for attack in report.attacks %}
       <div class="attack attack-{{ attack.outcome }}"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small title="{{ attack.detail }}">{{ attack.detail }}{% if attack.cached %} · cached{% endif %}</small></div>

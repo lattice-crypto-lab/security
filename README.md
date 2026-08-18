@@ -17,14 +17,20 @@ attack, and exact estimator environment.
 
 The Web UI also has a direct security-estimation form for entering one or more
 LWE, RLWE, GLWE, NTRU, or SIS cases without first creating an import file.
-`rough` runs only the fast attack set; `normal` additionally runs adaptive
-`arora_gb` and `bkw`. Both modes use the same per-attack cache.
+`rough` runs the fast attack set and, when a reviewed phase 4 model covers the
+input, adds conservative estimates for `arora_gb` and `bkw`. `normal`
+additionally runs those attacks and uses the same approximation only after the
+adaptive cutoff or timeout. Computed and approximate results use separate
+per-attack caches.
 
 For LWE-derived problems the service exposes all eight estimator attacks. Six
-fast attacks run normally. `arora_gb` and `bkw` are adaptive: after a configured
-decision time, the service cancels unfinished slow work when the minimum fast
-estimate is at or above the configured high-security threshold; otherwise it
-continues waiting up to the run timeout.
+fast attacks run normally. `arora_gb` and `bkw` then run in separate estimator
+plans with separate decision timers (300 seconds by default). At a decision
+time, the service cancels only that unfinished attack and only when its
+calibrated conservative estimate is at least the requested security level plus
+the stop margin (16 bits by default). Missing, out-of-domain, or insufficient
+approximations never trigger early termination. A slow estimate always
+identifies its dataset, estimator environment, holdout error, and safety margin.
 
 The original notebooks and Python utilities remain in the repository as
 research archives. The new service does not preserve their profiles, caches,
@@ -32,9 +38,11 @@ or historical result formats.
 
 Current status:
 
-- Contract, estimator adapter, Rust service, and phase 3 Web UI pass Windows
-  mock and browser tests.
-- Linux Sage/Docker verification pending.
+- Contract, estimator adapter, Rust service, phase 3 Web UI, and phase 4 model
+  pipeline pass Windows mock tests.
+- Phase 4 Linux Sage observations, model review, and Docker verification are
+  pending. Until a reviewed `security-service/models/slow-attacks-v1.json`
+  exists, approximation is intentionally disabled.
 
 Run the Rust checks on Windows with:
 
@@ -67,3 +75,6 @@ docker compose -f compose.yaml -f compose.build.yaml up --build
 ```
 
 Compose publishes only `127.0.0.1:8080`; `estimator-api` has no host port.
+The optional `calibration` Compose profile is a one-shot tool, not a third
+production service. See `docs/refactor/phase-4-approximation.md` for collection
+and model-build commands.

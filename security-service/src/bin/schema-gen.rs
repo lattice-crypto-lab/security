@@ -1,7 +1,8 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use lattice_security::{
-    ErrorEnvelope, EstimateRequest, ParameterSetFile, SecurityReportFile, SweepRequest,
+    ApproximationModelFile, ErrorEnvelope, EstimateRequest, ParameterSetFile, SecurityReportFile,
+    SweepRequest,
     database::ImportedParameterSet,
     service::{BatchSnapshot, JobSnapshot},
     sweep::SweepResponse,
@@ -45,6 +46,7 @@ fn run() -> Result<(), String> {
     process::<Metadata>(&schema_dir, "metadata-response-v1.schema.json", check)?;
     process::<SweepRequest>(&schema_dir, "sweep-request-v1.schema.json", check)?;
     process::<SweepResponse>(&schema_dir, "sweep-response-v1.schema.json", check)?;
+    process::<ApproximationModelFile>(&schema_dir, "slow-attack-model-v1.schema.json", check)?;
     Ok(())
 }
 

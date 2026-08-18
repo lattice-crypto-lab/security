@@ -20,7 +20,7 @@ canonical decimal strings. Sage output is normalized at the Python boundary;
 failure audit text is bounded. The Rust service later stores only successful
 computed outcomes in its per-attack cache.
 
-Supported distributions are uniform binary/ternary, fixed-weight
+Supported distributions are uniform binary/ternary, sparse ternary, fixed-weight
 binary/ternary, discrete Gaussian, centered binomial, and bounded uniform
 integers. Inputs that cannot be represented exactly by the pinned estimator are
 rejected by the strict request model rather than approximated.

@@ -12,6 +12,9 @@ attack, and calls the internal estimator adapter.
 - `ESTIMATOR_API_URL` defaults to `http://estimator-api:8000/`.
 - `LATTICE_SECURITY_API_TOKEN`, when non-empty, requires
   `Authorization: Bearer <token>` on every endpoint.
+- `LATTICE_SECURITY_APPROXIMATION_MODEL` optionally points to a reviewed
+  `lattice-security/slow-attack-model` v1 JSON artifact. A missing path disables
+  approximation; an invalid or provenance-mismatched artifact prevents startup.
 
 ## Public endpoints
 
@@ -34,9 +37,15 @@ attack, and calls the internal estimator adapter.
 estimation, the parameter-set library, run batches, and sweeps. The run view
 uses a master-detail layout with the batch list on the left and the selected
 report on the right. It supports parameter-set import/deletion, case selection,
-direct multi-case parameter entry, batch filtering/sorting, attack details,
-polling, bulk cancel/rerun/export, and one-axis sweep creation. The JSON sweep
+direct multi-case parameter entry with save/save-and-run actions, batch
+filtering/sorting, readable parameter snapshots next to their security bits,
+attack details, polling, bulk cancel/rerun/export, and one-axis sweep creation. The JSON sweep
 API supports up to four Cartesian axes and 10,000 generated cases.
+
+Finished run batches can also be deleted individually or in bulk. Active
+batches must be cancelled first. Deleting run history removes its jobs,
+reports, and attempt audit records while retaining computed and approximation
+caches.
 
 The import form explains both conflict policies inline. `reject` leaves the
 existing parameter set unchanged when its external ID already exists;
@@ -46,8 +55,11 @@ requests, reports, and attack-cache entries because those records contain their
 own immutable case snapshots.
 
 The direct form has two execution modes. `rough` runs the fast attack set and
-records missing slow attacks as policy-skipped; `normal` also schedules
-`arora_gb` and `bkw` under the adaptive slow-attack policy. A later normal run
+uses a calibrated conservative approximation for missing `arora_gb` and `bkw`
+results when the input is inside the reviewed model domain. `normal` also
+schedules those attacks under the adaptive slow-attack policy and may use the
+same approximation after cutoff or timeout. Outside the calibrated domain the
+slow outcomes remain skipped, timed out, or unsupported. A later normal run
 reuses fast results produced by a rough run. Submitting identical work creates
 separate batch records, while completed-cache lookup and scheduler
 single-flight prevent duplicate estimator execution.
@@ -63,18 +75,26 @@ already cached. Batch snapshots contain a monotonic revision, update time,
 polling hint, job IDs, and the report once available.
 
 The normal-mode form explains the slow-attack decision rule inline. The
-scheduler runs the six fast LWE attacks before the separate slow plan. If
-all fast attacks computed and their minimum security estimate reaches the
-request threshold, an unfinished `arora_gb`/`bkw` plan is disconnected after
-the configured decision time. The Python adapter then terminates and reaps the
-Sage process group. Policy-skipped results are not cached.
+scheduler runs the six fast LWE attacks first, then runs `arora_gb` and `bkw`
+in separate estimator plans. Each slow attack has its own decision timer. An
+unfinished attack is disconnected only when its calibrated conservative
+estimate reaches `required_security_bits + stop_margin_bits`; missing,
+out-of-domain, or lower estimates continue until a real result or the overall
+timeout. The Python adapter then terminates and reaps only that Sage process
+group. The Web defaults are 300 seconds and a 16-bit stop margin. Computed and
+approximate caches are separate. Approximate
+cache identity includes the model hash, so replacing the model cannot reuse
+stale estimates. The UI labels approximate outcomes and exposes dataset,
+estimator provenance, holdout error, and the applied safety margin.
 
 ## Verification status
 
 Windows mock integration covers caching, overlapping requests, ETag, adaptive
 cutoff, cancellation, transactional parameter-set import, UI rendering,
 selected-case execution, Cartesian sweep expansion, and pending queue staging.
-An in-app browser smoke test covers the desktop workbench, HTMX batch detail and
-filtering, and the 390-pixel responsive breakpoint. Real Sage, container
-health/resource behavior, Compose networking, and containerized browser smoke
-remain Linux verification pending.
+It also covers calibrated approximation, provenance matching, domain refusal,
+and model-versioned caching. An in-app browser smoke test covers the desktop
+workbench, HTMX batch detail and filtering, and the 390-pixel responsive
+breakpoint. Real Sage calibration, model review, container health/resource
+behavior, Compose networking, and containerized browser smoke remain Linux
+verification pending.

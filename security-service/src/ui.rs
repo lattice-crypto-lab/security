@@ -12,8 +12,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    AttackOutcome, EstimateMode, EstimateRequest, ExactDecimal, ParameterCase, ParameterSetFile,
-    PositiveInteger, SlowAttackPolicy, SweepAxis, SweepRequest, Validate,
+    AttackOutcome, ErrorDistribution, EstimateMode, EstimateRequest, ExactDecimal,
+    FILE_FORMAT_VERSION, ParameterCase, ParameterSetFile, PositiveInteger, Problem, SampleCount,
+    SecretDistribution, SlowAttackPolicy, SweepAxis, SweepRequest, Validate,
     database::ParameterSetSummary,
     error::ServiceError,
     service::{AppState, BatchSnapshot, JobSnapshot},
@@ -31,6 +32,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ui/batches/bulk-cancel", post(bulk_cancel))
         .route("/ui/batches/bulk-rerun", post(bulk_rerun))
         .route("/ui/batches/bulk-export", post(bulk_export))
+        .route("/ui/batches/bulk-delete", post(bulk_delete))
+        .route("/ui/batches/{batch_id}/delete", post(delete_batch))
         .route("/ui/estimates", post(create_quick_estimate))
         .route("/ui/import", post(import_parameter_set))
         .route("/ui/parameter-sets/{parameter_set_id}", get(parameter_set))
@@ -52,6 +55,7 @@ struct DashboardTemplate {
     batches: Vec<UiBatch>,
     active_tab: String,
     initial_batch_id: String,
+    approximation_status: String,
     message: String,
 }
 
@@ -118,14 +122,12 @@ struct UiBatch {
     terminal: bool,
     report_count: usize,
     security: String,
+    case_summary: String,
 }
 
-impl From<BatchSnapshot> for UiBatch {
-    fn from(value: BatchSnapshot) -> Self {
-        let report_count = value
-            .report
-            .as_ref()
-            .map_or(0, |report| report.reports.len());
+impl UiBatch {
+    fn new(value: BatchSnapshot, request: &EstimateRequest) -> Self {
+        let report_count = request.cases.len();
         let security = value
             .report
             .as_ref()
@@ -146,6 +148,7 @@ impl From<BatchSnapshot> for UiBatch {
             terminal: value.state.terminal(),
             report_count,
             security,
+            case_summary: batch_case_summary(&request.cases),
         }
     }
 }
@@ -155,15 +158,19 @@ struct UiJob {
     case_id: String,
     state: String,
     attempts: u32,
+    case_name: String,
+    parameters: UiProblem,
 }
 
-impl From<JobSnapshot> for UiJob {
-    fn from(value: JobSnapshot) -> Self {
+impl UiJob {
+    fn new(value: JobSnapshot, case: Option<&ParameterCase>) -> Self {
         Self {
             id: value.job_id,
             case_id: value.case_id,
             state: value.state.kind().to_owned(),
             attempts: value.attempts,
+            case_name: case.map_or_else(|| "Unknown case".to_owned(), |case| case.name.clone()),
+            parameters: case.map_or_else(UiProblem::unknown, |case| problem_view(&case.problem)),
         }
     }
 }
@@ -174,7 +181,26 @@ struct UiReport {
     security: String,
     complete: bool,
     fast_estimate: bool,
+    approximate: bool,
+    parameters: UiProblem,
     attacks: Vec<UiAttack>,
+}
+
+#[derive(Clone)]
+struct UiProblem {
+    primary: String,
+    secret: String,
+    error: String,
+}
+
+impl UiProblem {
+    fn unknown() -> Self {
+        Self {
+            primary: "参数快照不可用".to_owned(),
+            secret: String::new(),
+            error: String::new(),
+        }
+    }
 }
 
 struct UiAttack {
@@ -189,6 +215,155 @@ struct UiCase {
     id: String,
     name: String,
     problem: String,
+}
+
+async fn load_ui_batches(
+    state: &Arc<AppState>,
+    limit: usize,
+) -> Result<Vec<UiBatch>, ServiceError> {
+    let snapshots = state
+        .database
+        .list_batches_with_requests(limit, state.poll_after_seconds)
+        .await?;
+    let mut batches = Vec::with_capacity(snapshots.len());
+    for (snapshot, request) in snapshots {
+        batches.push(UiBatch::new(snapshot, &request));
+    }
+    Ok(batches)
+}
+
+fn batch_case_summary(cases: &[ParameterCase]) -> String {
+    let Some(first) = cases.first() else {
+        return "没有 case".to_owned();
+    };
+    let first_problem = problem_view(&first.problem);
+    if cases.len() == 1 {
+        format!("{} · {}", first.name, first_problem.primary)
+    } else {
+        format!(
+            "{} · {} · 另有 {} 个 case",
+            first.name,
+            first_problem.primary,
+            cases.len() - 1
+        )
+    }
+}
+
+fn problem_view(problem: &Problem) -> UiProblem {
+    match problem {
+        Problem::Lwe(problem) => UiProblem {
+            primary: format!(
+                "LWE · n={} · q={} · samples={}",
+                problem.dimension,
+                problem.modulus,
+                sample_count(&problem.samples)
+            ),
+            secret: secret_distribution(&problem.secret),
+            error: error_distribution(&problem.error),
+        },
+        Problem::Rlwe(problem) => UiProblem {
+            primary: format!(
+                "RLWE · N={} · q={} · ring samples={}",
+                problem.negacyclic_ring.polynomial_degree,
+                problem.negacyclic_ring.ciphertext_modulus,
+                sample_count(&problem.samples)
+            ),
+            secret: secret_distribution(&problem.secret),
+            error: error_distribution(&problem.error),
+        },
+        Problem::Glwe(problem) => UiProblem {
+            primary: format!(
+                "GLWE · k={} · N={} · q={} · ring samples={}",
+                problem.dimension,
+                problem.negacyclic_ring.polynomial_degree,
+                problem.negacyclic_ring.ciphertext_modulus,
+                sample_count(&problem.samples)
+            ),
+            secret: secret_distribution(&problem.secret),
+            error: error_distribution(&problem.error),
+        },
+        Problem::Ntru(problem) => UiProblem {
+            primary: format!(
+                "NTRU · n={} · q={} · structure={}",
+                problem.dimension,
+                problem.modulus,
+                enum_name(&problem.structure)
+            ),
+            secret: secret_distribution(&problem.secret),
+            error: error_distribution(&problem.error),
+        },
+        Problem::Sis(problem) => UiProblem {
+            primary: format!(
+                "SIS · n={} · q={} · columns={} · bound={} · norm={}",
+                problem.dimension,
+                problem.modulus,
+                problem.columns,
+                problem.length_bound,
+                enum_name(&problem.norm)
+            ),
+            secret: String::new(),
+            error: String::new(),
+        },
+    }
+}
+
+fn sample_count(samples: &SampleCount) -> String {
+    match samples {
+        SampleCount::Finite { count } => count.to_string(),
+        SampleCount::Unlimited => "unlimited".to_owned(),
+    }
+}
+
+fn secret_distribution(distribution: &SecretDistribution) -> String {
+    match distribution {
+        SecretDistribution::UniformBinary => "secret: uniform binary".to_owned(),
+        SecretDistribution::UniformTernary => "secret: uniform ternary".to_owned(),
+        SecretDistribution::SparseTernary {
+            positive_count,
+            negative_count,
+        } => format!("secret: sparse ternary (+1={positive_count}, -1={negative_count})"),
+        SecretDistribution::FixedWeightBinary { hamming_weight } => {
+            format!("secret: fixed-weight binary (weight={hamming_weight})")
+        }
+        SecretDistribution::FixedWeightTernary {
+            positive_weight,
+            negative_weight,
+        } => format!("secret: fixed-weight ternary (+1={positive_weight}, -1={negative_weight})"),
+        SecretDistribution::DiscreteGaussian { standard_deviation } => {
+            format!("secret: discrete Gaussian (σ={standard_deviation})")
+        }
+        SecretDistribution::CenteredBinomial { eta } => {
+            format!("secret: centered binomial (η={eta})")
+        }
+        SecretDistribution::UniformInteger { lower, upper } => format!(
+            "secret: bounded integer [{}..{}]",
+            lower.as_bigint(),
+            upper.as_bigint()
+        ),
+    }
+}
+
+fn error_distribution(distribution: &ErrorDistribution) -> String {
+    match distribution {
+        ErrorDistribution::DiscreteGaussian { standard_deviation } => {
+            format!("error: discrete Gaussian (σ={standard_deviation})")
+        }
+        ErrorDistribution::CenteredBinomial { eta } => {
+            format!("error: centered binomial (η={eta})")
+        }
+        ErrorDistribution::UniformInteger { lower, upper } => format!(
+            "error: bounded integer [{}..{}]",
+            lower.as_bigint(),
+            upper.as_bigint()
+        ),
+    }
+}
+
+fn enum_name<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 #[derive(Default, Deserialize)]
@@ -210,13 +385,7 @@ async fn dashboard(
         .into_iter()
         .map(Into::into)
         .collect();
-    let batches: Vec<UiBatch> = state
-        .database
-        .list_batches(100, state.poll_after_seconds)
-        .await?
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let batches = load_ui_batches(&state, 100).await?;
     let initial_batch_id = batches
         .first()
         .map(|batch: &UiBatch| batch.id.clone())
@@ -225,11 +394,30 @@ async fn dashboard(
         "schemes" | "runs" | "sweep" => query.tab,
         _ => "estimate".to_owned(),
     };
+    let approximation_status = if state.metadata.approximation.available {
+        format!(
+            "近似模型 {} v{}",
+            state
+                .metadata
+                .approximation
+                .model_id
+                .as_deref()
+                .unwrap_or("unknown"),
+            state
+                .metadata
+                .approximation
+                .model_version
+                .unwrap_or_default()
+        )
+    } else {
+        "近似模型未启用".to_owned()
+    };
     render(DashboardTemplate {
         parameter_sets,
         batches,
         active_tab,
         initial_batch_id,
+        approximation_status,
         message: query.message,
     })
 }
@@ -248,12 +436,9 @@ async fn batch_table(
     State(state): State<Arc<AppState>>,
     Query(filter): Query<BatchFilter>,
 ) -> Result<Html<String>, ServiceError> {
-    let mut batches = state
-        .database
-        .list_batches(200, state.poll_after_seconds)
+    let mut batches = load_ui_batches(&state, 200)
         .await?
         .into_iter()
-        .map(UiBatch::from)
         .filter(|batch| {
             (filter.q.is_empty() || batch.id.contains(&filter.q))
                 && (filter.state.is_empty() || batch.state == filter.state)
@@ -271,11 +456,12 @@ async fn batch_row(
     State(state): State<Arc<AppState>>,
     Path(batch_id): Path<String>,
 ) -> Result<Html<String>, ServiceError> {
-    let batch = state
+    let snapshot = state
         .database
         .batch(&batch_id, state.poll_after_seconds)
-        .await?
-        .into();
+        .await?;
+    let request = state.database.batch_request(&batch_id).await?;
+    let batch = UiBatch::new(snapshot, &request);
     render(BatchRowTemplate { batch })
 }
 
@@ -287,9 +473,12 @@ async fn batch_detail(
         .database
         .batch(&batch_id, state.poll_after_seconds)
         .await?;
+    let request = state.database.batch_request(&batch_id).await?;
     let mut jobs = Vec::with_capacity(snapshot.job_ids.len());
     for job_id in &snapshot.job_ids {
-        jobs.push(state.database.job(job_id).await?.into());
+        let job = state.database.job(job_id).await?;
+        let case = request.cases.iter().find(|case| case.id == job.case_id);
+        jobs.push(UiJob::new(job, case));
     }
     let reports = snapshot
         .report
@@ -309,6 +498,8 @@ async fn batch_detail(
                         .unwrap_or_else(|| "—".to_owned()),
                     complete: entry.summary.complete,
                     fast_estimate: entry.summary.fast_estimate,
+                    approximate: entry.summary.approximate,
+                    parameters: problem_view(&entry.case.problem),
                     attacks: entry
                         .attacks
                         .iter()
@@ -328,7 +519,7 @@ async fn batch_detail(
         })
         .unwrap_or_default();
     render(BatchDetailTemplate {
-        batch: snapshot.into(),
+        batch: UiBatch::new(snapshot, &request),
         jobs,
         reports,
     })
@@ -371,20 +562,34 @@ struct ImportForm {
     timeout_seconds: u64,
     #[serde(default = "default_decision")]
     decision_after_seconds: u64,
-    #[serde(default = "default_threshold")]
-    high_security_bits: String,
+    #[serde(default = "default_required_security")]
+    required_security_bits: String,
+    #[serde(default = "default_stop_margin")]
+    stop_margin_bits: String,
 }
 
 #[derive(Deserialize)]
 struct QuickEstimateForm {
     cases_json: String,
+    #[serde(default = "default_quick_action")]
+    action: String,
+    #[serde(default)]
+    parameter_set_id: String,
+    #[serde(default)]
+    parameter_set_name: String,
+    #[serde(default)]
+    parameter_set_description: String,
+    #[serde(default)]
+    conflict: String,
     mode: String,
     #[serde(default = "default_timeout")]
     timeout_seconds: u64,
     #[serde(default = "default_decision")]
     decision_after_seconds: u64,
-    #[serde(default = "default_threshold")]
-    high_security_bits: String,
+    #[serde(default = "default_required_security")]
+    required_security_bits: String,
+    #[serde(default = "default_stop_margin")]
+    stop_margin_bits: String,
 }
 
 async fn create_quick_estimate(
@@ -395,6 +600,33 @@ async fn create_quick_estimate(
     let cases: Vec<ParameterCase> = serde_json::from_str(&form.cases_json).map_err(|error| {
         ServiceError::BadRequest(format!("invalid quick-estimate cases: {error}"))
     })?;
+    let save = matches!(form.action.as_str(), "save" | "save_run");
+    let run = matches!(form.action.as_str(), "run" | "save_run");
+    if !save && !run {
+        return Err(ServiceError::BadRequest(
+            "unknown quick-estimate action".to_owned(),
+        ));
+    }
+    if save {
+        let parameter_set = ParameterSetFile {
+            format: "lattice-security/parameter-set".to_owned(),
+            version: FILE_FORMAT_VERSION,
+            id: form.parameter_set_id,
+            name: form.parameter_set_name,
+            description: (!form.parameter_set_description.trim().is_empty())
+                .then_some(form.parameter_set_description),
+            tags: vec!["web".to_owned()],
+            cases: cases.clone(),
+        };
+        parameter_set.validate()?;
+        state
+            .database
+            .import_parameter_set(parameter_set, form.conflict == "replace")
+            .await?;
+    }
+    if !run {
+        return redirect(&headers, "/?tab=schemes&message=Parameter+set+saved");
+    }
     let mode = match form.mode.as_str() {
         "rough" => EstimateMode::Rough,
         "normal" => EstimateMode::Normal,
@@ -405,14 +637,19 @@ async fn create_quick_estimate(
         mode,
         form.timeout_seconds,
         form.decision_after_seconds,
-        &form.high_security_bits,
+        &form.required_security_bits,
+        &form.stop_margin_bits,
     )?;
     let (fully_cached, _) = state
         .scheduler
         .submit(request, state.poll_after_seconds)
         .await?;
-    let location = if fully_cached {
+    let location = if fully_cached && save {
+        "/?tab=runs&message=Parameter+set+saved+and+estimate+completed+from+cache"
+    } else if fully_cached {
         "/?tab=runs&message=Security+estimate+completed+from+cache"
+    } else if save {
+        "/?tab=runs&message=Parameter+set+saved+and+estimate+queued"
     } else {
         "/?tab=runs&message=Security+estimate+queued"
     };
@@ -440,7 +677,8 @@ async fn import_parameter_set(
             EstimateMode::Normal,
             form.timeout_seconds,
             form.decision_after_seconds,
-            &form.high_security_bits,
+            &form.required_security_bits,
+            &form.stop_margin_bits,
         )?;
         state
             .scheduler
@@ -458,8 +696,10 @@ struct RunForm {
     timeout_seconds: u64,
     #[serde(default = "default_decision")]
     decision_after_seconds: u64,
-    #[serde(default = "default_threshold")]
-    high_security_bits: String,
+    #[serde(default = "default_required_security")]
+    required_security_bits: String,
+    #[serde(default = "default_stop_margin")]
+    stop_margin_bits: String,
 }
 
 async fn run_parameter_set(
@@ -492,7 +732,8 @@ async fn run_parameter_set(
         EstimateMode::Normal,
         form.timeout_seconds,
         form.decision_after_seconds,
-        &form.high_security_bits,
+        &form.required_security_bits,
+        &form.stop_margin_bits,
     )?;
     state
         .scheduler
@@ -547,6 +788,27 @@ async fn bulk_rerun(
     redirect(&headers, "/?tab=runs&message=Selected+runs+queued")
 }
 
+async fn delete_batch(
+    State(state): State<Arc<AppState>>,
+    Path(batch_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ServiceError> {
+    state.database.delete_batches(vec![batch_id]).await?;
+    redirect(&headers, "/?tab=runs&message=Run+deleted")
+}
+
+async fn bulk_delete(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Form(form): Form<BulkForm>,
+) -> Result<Response, ServiceError> {
+    state
+        .database
+        .delete_batches(required_ids(&form.ids)?)
+        .await?;
+    redirect(&headers, "/?tab=runs&message=Selected+runs+deleted")
+}
+
 async fn bulk_export(
     State(state): State<Arc<AppState>>,
     Form(form): Form<BulkForm>,
@@ -590,8 +852,10 @@ struct SweepForm {
     timeout_seconds: u64,
     #[serde(default = "default_decision")]
     decision_after_seconds: u64,
-    #[serde(default = "default_threshold")]
-    high_security_bits: String,
+    #[serde(default = "default_required_security")]
+    required_security_bits: String,
+    #[serde(default = "default_stop_margin")]
+    stop_margin_bits: String,
 }
 
 async fn create_sweep(
@@ -637,15 +901,18 @@ async fn create_sweep(
         },
         _ => return Err(ServiceError::BadRequest("unknown sweep axis".to_owned())),
     };
-    let threshold =
-        ExactDecimal::new(&form.high_security_bits).map_err(ServiceError::BadRequest)?;
+    let required_security =
+        ExactDecimal::new(&form.required_security_bits).map_err(ServiceError::BadRequest)?;
+    let stop_margin =
+        ExactDecimal::new(&form.stop_margin_bits).map_err(ServiceError::BadRequest)?;
     let request = SweepRequest {
         base_case,
         axes: vec![axis],
         timeout_seconds: form.timeout_seconds,
         slow_attack_policy: Some(SlowAttackPolicy {
             decision_after_seconds: form.decision_after_seconds,
-            high_security_bits: threshold,
+            required_security_bits: required_security,
+            stop_margin_bits: stop_margin,
         }),
     };
     let cases = crate::sweep::expand(&request)?;
@@ -746,7 +1013,8 @@ fn estimate_from_cases(
     mode: EstimateMode,
     timeout_seconds: u64,
     decision_after_seconds: u64,
-    high_security_bits: &str,
+    required_security_bits: &str,
+    stop_margin_bits: &str,
 ) -> Result<EstimateRequest, ServiceError> {
     let request = EstimateRequest {
         cases,
@@ -755,7 +1023,9 @@ fn estimate_from_cases(
         slow_attack_policy: if mode == EstimateMode::Normal {
             Some(SlowAttackPolicy {
                 decision_after_seconds,
-                high_security_bits: ExactDecimal::new(high_security_bits)
+                required_security_bits: ExactDecimal::new(required_security_bits)
+                    .map_err(ServiceError::BadRequest)?,
+                stop_margin_bits: ExactDecimal::new(stop_margin_bits)
                     .map_err(ServiceError::BadRequest)?,
             })
         } else {
@@ -788,6 +1058,7 @@ fn split_ids(value: &str) -> Vec<String> {
 fn outcome_name(outcome: &AttackOutcome) -> &'static str {
     match outcome {
         AttackOutcome::Computed { .. } => "computed",
+        AttackOutcome::Approximate { .. } => "approximate",
         AttackOutcome::Timeout { .. } => "timeout",
         AttackOutcome::Unsupported { .. } => "unsupported",
         AttackOutcome::Failed { .. } => "failed",
@@ -797,7 +1068,8 @@ fn outcome_name(outcome: &AttackOutcome) -> &'static str {
 
 fn outcome_security(outcome: &AttackOutcome) -> String {
     match outcome {
-        AttackOutcome::Computed { security_bits, .. } => format_security_bits(security_bits),
+        AttackOutcome::Computed { security_bits, .. }
+        | AttackOutcome::Approximate { security_bits, .. } => format_security_bits(security_bits),
         _ => "—".to_owned(),
     }
 }
@@ -805,6 +1077,16 @@ fn outcome_security(outcome: &AttackOutcome) -> String {
 fn outcome_detail(outcome: &AttackOutcome) -> String {
     match outcome {
         AttackOutcome::Computed { .. } => "computed".to_owned(),
+        AttackOutcome::Approximate { provenance, .. } => format!(
+            "approximate · {} v{} · {} · holdout MAE {} bit · p95 {} bit · max overestimate {} bit · safety margin {} bit",
+            provenance.model_id,
+            provenance.model_version,
+            provenance.platform,
+            provenance.holdout_mean_absolute_error_bits,
+            provenance.holdout_p95_absolute_error_bits,
+            provenance.holdout_max_overestimate_bits,
+            provenance.safety_margin_bits
+        ),
         AttackOutcome::Timeout { timeout_seconds } => {
             format!("timeout after {timeout_seconds}s")
         }
@@ -829,11 +1111,19 @@ const fn default_timeout() -> u64 {
 }
 
 const fn default_decision() -> u64 {
-    60
+    300
 }
 
-fn default_threshold() -> String {
+fn default_required_security() -> String {
     "128".to_owned()
+}
+
+fn default_stop_margin() -> String {
+    "16".to_owned()
+}
+
+fn default_quick_action() -> String {
+    "run".to_owned()
 }
 
 #[cfg(test)]

@@ -1,0 +1,50 @@
+{
+  "format": "lattice-security/parameter-set",
+  "version": 1,
+  "id": "goldilocks",
+  "name": "Goldilocks 参数方案",
+  "description": "从 goldilocks.py 的有效估算调用迁移；RLWE case 使用显式 coefficient_embedding_v1 模型。",
+  "tags": ["migrated", "python", "goldilocks"],
+  "cases": [
+    {
+      "id": "lwe",
+      "name": "Goldilocks LWE",
+      "problem": {
+        "kind": "lwe",
+        "dimension": 728,
+        "modulus": "18446744069414584321",
+        "samples": { "kind": "unlimited" },
+        "secret": { "kind": "uniform_binary" },
+        "error": {
+          "kind": "discrete_gaussian",
+          "standard_deviation": "102034679057612.8"
+        }
+      }
+    },
+    {
+      "id": "rlwe",
+      "name": "Goldilocks RLWE",
+      "problem": {
+        "kind": "rlwe",
+        "negacyclic_ring": {
+          "polynomial_degree": 1024,
+          "ciphertext_modulus": "18446744069414584321"
+        },
+        "samples": { "kind": "unlimited" },
+        "secret": {
+          "kind": "sparse_ternary",
+          "positive_count": 256,
+          "negative_count": 256
+        },
+        "error": {
+          "kind": "discrete_gaussian",
+          "standard_deviation": "316109592985.6"
+        }
+      },
+      "analysis": {
+        "security_model": "classical",
+        "reduction_model": "coefficient_embedding_v1"
+      }
+    }
+  ]
+}

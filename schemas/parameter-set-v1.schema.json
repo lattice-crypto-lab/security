@@ -494,6 +494,31 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sparse_ternary"
+            },
+            "negative_count": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "positive_count": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "positive_count",
+            "negative_count"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
             "hamming_weight": {
               "type": "integer",
               "format": "uint64",
