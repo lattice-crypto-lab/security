@@ -18,7 +18,9 @@ LWE runs `usvp`, `bdd`, `bdd_hybrid`, `bdd_mitm_hybrid`, `dual`, and
 and cancel them under its configured time/security policy.
 
 The request limit is 8 MiB. The default hard timeout is 3,600 seconds, the
-maximum is 7,200 seconds, cleanup grace is 15 seconds, and concurrency is one.
+maximum is 7,200 seconds, cleanup grace is 15 seconds, and concurrent Sage
+processes default to three. `ESTIMATOR_CONCURRENCY` can set a value from 1 to
+32; it should match the Rust service's estimator-plan limit.
 Timeout, HTTP disconnect, caller cancellation, and server task cancellation
 all trigger process-group TERM, bounded grace, KILL, and wait.
 

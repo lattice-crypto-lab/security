@@ -11,23 +11,28 @@ the normalized estimator problem, resolved analysis, analysis model, attack,
 and exact estimator context. Names, tags, case order, timeout, and slow-attack
 policy do not affect the key.
 
-The scheduler has one execution lane, which matches the worker concurrency and
-also provides single-flight behavior: overlapping jobs recheck the attack
-cache after acquiring the lane. Worker transport failures are retried once.
-On restart, unfinished attempts become interrupted; attempts below the retry
-limit are queued once more.
+The scheduler uses bounded concurrency at two levels: two cases and three
+estimator plans by default. Per-attack keyed locks provide single-flight
+without serializing unrelated work; overlapping jobs wait for the active key
+and recheck the cache before starting Sage. Worker transport failures are
+retried once. On restart, unfinished attempts become interrupted; attempts
+below the retry limit are queued once more.
 
-For LWE-derived cases, missing fast attacks run as one plan. Before creating
-separate `arora_gb` and `bkw` plans, versioned applicability rules classify
-each attack as applicable, borderline, or inapplicable. Inapplicable attacks
-produce `policy_skipped`; applicable attacks run. Borderline inputs consult the
+For LWE-derived cases, missing fast attacks are split into a primal plan
+(`usvp` plus the BDD family) and a dual-family plan. Keeping the primal attacks
+together lets lattice-estimator reuse its process-local uSVP baseline and cost
+caches. `arora_gb` and `bkw` are separate plans, so independent groups may run
+together while sharing the global estimator limit. Before
+creating the slow plans, versioned applicability rules classify each attack as
+applicable, borderline, or inapplicable. Inapplicable attacks produce
+`policy_skipped`; applicable attacks run. Borderline inputs consult the
 calibrated model. A prediction at or above
 `required_security_bits + stop_margin_bits` skips that worker plan entirely;
 a missing or lower prediction causes the real attack to run until completion
 or the overall worker timeout.
 
-Cancellation is persisted before the in-flight HTTP request is dropped. Any
-completed results remain cached and exportable in a partial report. A policy
+Cancellation is persisted before all in-flight HTTP requests for the job are
+dropped. Any completed results remain cached and exportable in a partial report. A policy
 preflight produces a calibrated `approximate` outcome in its separate model-keyed
 cache and never populates the computed cache.
 

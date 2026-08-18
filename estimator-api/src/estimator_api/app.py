@@ -17,8 +17,10 @@ from .constants import (
     ADAPTER_SCHEMA_VERSION,
     ADAPTER_VERSION,
     DEFAULT_CLEANUP_GRACE_SECONDS,
+    DEFAULT_ESTIMATOR_CONCURRENCY,
     DEPENDENCY_GRAPH_VERSION,
     ESTIMATOR_COMMIT,
+    MAX_ESTIMATOR_CONCURRENCY,
     REQUEST_BODY_LIMIT_BYTES,
     SAGE_IMAGE,
     SAGE_VERSION,
@@ -49,6 +51,13 @@ from .process import (
 @dataclass(frozen=True)
 class Settings:
     process: ProcessSettings
+    concurrency: int = DEFAULT_ESTIMATOR_CONCURRENCY
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.concurrency <= MAX_ESTIMATOR_CONCURRENCY:
+            raise ValueError(
+                f"estimator concurrency must be between 1 and {MAX_ESTIMATOR_CONCURRENCY}"
+            )
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -64,7 +73,10 @@ class Settings:
                         str(DEFAULT_CLEANUP_GRACE_SECONDS),
                     )
                 ),
-            )
+            ),
+            concurrency=int(
+                os.environ.get("ESTIMATOR_CONCURRENCY", str(DEFAULT_ESTIMATOR_CONCURRENCY))
+            ),
         )
 
 
@@ -118,7 +130,7 @@ def create_app(
 ) -> FastAPI:
     configured = settings or Settings.from_environment()
     process_runner = runner or SageProcessRunner(configured.process)
-    semaphore = asyncio.Semaphore(1)
+    semaphore = asyncio.Semaphore(configured.concurrency)
 
     app = FastAPI(
         title="lattice-security estimator adapter",

@@ -4,6 +4,8 @@ services:
   estimator-api:
     image: ghcr.io/lattice-crypto-lab/estimator-api:${ESTIMATOR_API_VERSION:-latest}
     platform: linux/amd64
+    environment:
+      ESTIMATOR_CONCURRENCY: "${ESTIMATOR_CONCURRENCY:-3}"
     restart: unless-stopped
 
   security-service:
@@ -15,6 +17,8 @@ services:
     environment:
       ESTIMATOR_API_URL: http://estimator-api:8000/
       LATTICE_SECURITY_API_TOKEN: "${LATTICE_SECURITY_API_TOKEN:-}"
+      LATTICE_SECURITY_CASE_CONCURRENCY: "${LATTICE_SECURITY_CASE_CONCURRENCY:-2}"
+      LATTICE_SECURITY_ESTIMATOR_CONCURRENCY: "${ESTIMATOR_CONCURRENCY:-3}"
     ports:
       - "${LATTICE_SECURITY_HOST:-127.0.0.1}:${LATTICE_SECURITY_PORT:-8080}:8080"
     volumes:

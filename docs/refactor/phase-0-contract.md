@@ -89,8 +89,9 @@ reduction.
 
 - linux/amd64, Rust 1.97.1, Sage 10.9, fixed estimator commit.
 - 8 MiB request limit and at most 500 cases per request.
-- Worker concurrency one, default timeout 3,600 seconds, maximum 7,200 seconds,
-  cleanup grace 15 seconds.
+- Case concurrency two and Sage-process concurrency three, both configurable
+  from 1 to 32. Default timeout is 3,600 seconds, maximum 7,200 seconds, and
+  cleanup grace is 15 seconds.
 - SQLite path `/var/lib/lattice-security/lattice-security.db`.
 - No SSE/WebSocket, PostgreSQL, multi-instance, ARM64, external legacy
   converter, or Primus repository changes.

@@ -28,6 +28,8 @@ use tower::ServiceExt;
 #[derive(Clone)]
 struct MockState {
     calls: Arc<AtomicUsize>,
+    active: Arc<AtomicUsize>,
+    max_active: Arc<AtomicUsize>,
     plans: Arc<StdMutex<Vec<Vec<String>>>>,
     slow_delay: Duration,
     security_bits: &'static str,
@@ -38,6 +40,7 @@ struct Harness {
     app: Router,
     state: Arc<AppState>,
     calls: Arc<AtomicUsize>,
+    max_active: Arc<AtomicUsize>,
     plans: Arc<StdMutex<Vec<Vec<String>>>>,
     no_finite_attacks: Arc<StdMutex<HashSet<String>>>,
     _directory: TempDir,
@@ -64,7 +67,7 @@ async fn estimate_is_accepted_then_fully_cached_and_supports_etag() {
         completed["report"]["reports"][0]["summary"]["complete"],
         true
     );
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
     let policy_skipped = completed["report"]["reports"][0]["attacks"]
         .as_array()
         .unwrap()
@@ -76,7 +79,7 @@ async fn estimate_is_accepted_then_fully_cached_and_supports_etag() {
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
     assert_eq!(second.1["state"]["kind"], "completed");
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let revision = completed["revision"].as_u64().unwrap();
     let response = harness
@@ -271,7 +274,7 @@ async fn deterministic_applicability_skips_irrelevant_slow_attacks_without_a_mod
         assert_eq!(result["outcome"]["kind"], "policy_skipped");
         assert_eq!(result["outcome"]["applicability_rule_version"], 1);
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
@@ -293,12 +296,12 @@ async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
         partial["report"]["reports"][0]["summary"]["fast_estimate"],
         true
     );
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let cached_rough = json_request(&harness.app, "POST", "/v1/estimates", &rough).await;
     assert_eq!(cached_rough.0, StatusCode::OK);
     assert_eq!(cached_rough.1["state"]["kind"], "partial");
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let normal = applicable_request("128");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &normal).await;
@@ -308,7 +311,7 @@ async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
         wait_for_terminal(&harness.app, normal_batch_id).await["state"]["kind"],
         "completed"
     );
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -336,7 +339,7 @@ async fn rough_mode_uses_and_caches_calibrated_slow_attack_approximations() {
         assert_eq!(result["outcome"]["provenance"]["holdout_samples"], 8);
         assert_eq!(result["cached"], false);
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
@@ -351,7 +354,7 @@ async fn rough_mode_uses_and_caches_calibrated_slow_attack_approximations() {
         assert_eq!(result["outcome"]["kind"], "approximate");
         assert_eq!(result["cached"], true);
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 
     let metadata = json_request::<Value>(&harness.app, "GET", "/v1/metadata", &Value::Null).await;
     assert_eq!(metadata.1["approximation"]["available"], true);
@@ -380,19 +383,16 @@ async fn calibrated_preflight_skips_slow_worker_plans() {
             .unwrap();
         assert_eq!(result["outcome"]["kind"], "approximate");
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
     let plans = harness.plans.lock().unwrap().clone();
-    assert_eq!(
-        plans.as_slice(),
-        &[vec![
-            "usvp".to_owned(),
-            "bdd".to_owned(),
-            "bdd_hybrid".to_owned(),
-            "bdd_mitm_hybrid".to_owned(),
-            "dual".to_owned(),
-            "dual_hybrid".to_owned(),
-        ]]
-    );
+    assert_eq!(plans.len(), 2);
+    assert!(plans.contains(&vec![
+        "usvp".to_owned(),
+        "bdd".to_owned(),
+        "bdd_hybrid".to_owned(),
+        "bdd_mitm_hybrid".to_owned(),
+    ]));
+    assert!(plans.contains(&vec!["dual".to_owned(), "dual_hybrid".to_owned()]));
     let calls = harness.calls.load(Ordering::SeqCst);
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
@@ -419,7 +419,7 @@ async fn approximation_below_required_security_plus_margin_waits_for_real_result
             .unwrap();
         assert_eq!(result["outcome"]["kind"], "computed");
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -442,7 +442,30 @@ async fn overlapping_batches_share_the_per_attack_cache() {
         wait_for_terminal(&harness.app, right_id).await["state"]["kind"],
         "completed"
     );
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cases_and_independent_attack_families_use_bounded_parallelism() {
+    let harness = harness(Duration::from_millis(100), "96").await;
+    let mut request = applicable_request("256");
+    let mut second = request.cases[0].clone();
+    second.id = "second-case".to_owned();
+    second.name = "Second case".to_owned();
+    let lattice_security::Problem::Lwe(problem) = &mut second.problem else {
+        panic!("applicable request must contain LWE parameters");
+    };
+    problem.dimension = 129;
+    request.cases.push(second);
+
+    let submitted = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    assert_eq!(submitted.0, StatusCode::ACCEPTED);
+    let batch_id = submitted.1["batch_id"].as_str().unwrap();
+    let completed = wait_for_terminal(&harness.app, batch_id).await;
+    assert_eq!(completed["state"]["kind"], "completed");
+    assert_eq!(completed["report"]["reports"].as_array().unwrap().len(), 2);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 8);
+    assert_eq!(harness.max_active.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -998,10 +1021,14 @@ async fn harness_with_optional_model(
     model: Option<ApproximationModelFile>,
 ) -> Harness {
     let calls = Arc::new(AtomicUsize::new(0));
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
     let plans = Arc::new(StdMutex::new(Vec::new()));
     let no_finite_attacks = Arc::new(StdMutex::new(HashSet::new()));
     let mock_state = MockState {
         calls: calls.clone(),
+        active,
+        max_active: max_active.clone(),
         plans: plans.clone(),
         slow_delay,
         security_bits,
@@ -1029,12 +1056,15 @@ async fn harness_with_optional_model(
         poll_after_seconds: 0,
         api_token,
         approximation_model_path,
+        case_concurrency: 2,
+        estimator_concurrency: 3,
     };
     let state = AppState::start(&config).await.unwrap();
     Harness {
         app: api::router(state.clone()),
         state,
         calls,
+        max_active,
         plans,
         no_finite_attacks,
         _directory: directory,
@@ -1133,6 +1163,8 @@ async fn mock_metadata() -> Json<Value> {
 
 async fn mock_estimate(State(state): State<MockState>, Json(request): Json<Value>) -> Json<Value> {
     state.calls.fetch_add(1, Ordering::SeqCst);
+    let active = state.active.fetch_add(1, Ordering::SeqCst) + 1;
+    state.max_active.fetch_max(active, Ordering::SeqCst);
     let targets = request["target_attacks"].as_array().unwrap().clone();
     state.plans.lock().unwrap().push(
         targets
@@ -1176,7 +1208,7 @@ async fn mock_estimate(State(state): State<MockState>, Json(request): Json<Value
             }
         })
         .collect::<Vec<_>>();
-    Json(json!({
+    let response = Json(json!({
         "schema_version": 2,
         "plan": {"dependency_graph_version": 1, "target": [], "support": [], "executed": []},
         "results": results,
@@ -1189,7 +1221,9 @@ async fn mock_estimate(State(state): State<MockState>, Json(request): Json<Value
             "dependency_graph_version": 1,
             "worker_image": "mock-worker"
         }
-    }))
+    }));
+    state.active.fetch_sub(1, Ordering::SeqCst);
+    response
 }
 
 fn estimate_request(required_security: &str) -> EstimateRequest {

@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from test_models import request_data
 
@@ -12,6 +13,12 @@ from estimator_api.constants import ESTIMATOR_COMMIT, REQUEST_BODY_LIMIT_BYTES
 from estimator_api.process import ProcessSettings
 
 MOCK_WORKER = Path(__file__).with_name("mock_worker.py")
+
+
+def test_settings_reject_invalid_concurrency() -> None:
+    process = ProcessSettings(command=(sys.executable, str(MOCK_WORKER), "success"))
+    with pytest.raises(ValueError, match="between 1 and 32"):
+        Settings(process=process, concurrency=0)
 
 
 def test_health_metadata_and_estimate_contracts() -> None:

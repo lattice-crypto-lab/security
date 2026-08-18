@@ -1,6 +1,13 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::{
+    sync::{Mutex, Notify, OwnedMutexGuard, Semaphore, mpsc},
+    task::JoinSet,
+};
 
 use crate::{
     AnalysisModel, ApplicabilityLevel, ApproximationEngine, Attack, AttackCacheIdentity,
@@ -19,6 +26,7 @@ use crate::{
 pub struct Scheduler {
     receiver: mpsc::Receiver<String>,
     handle: SchedulerHandle,
+    case_slots: Arc<Semaphore>,
 }
 
 #[derive(Clone)]
@@ -33,9 +41,11 @@ struct Runner {
     upstream: EstimatorClient,
     metadata: Metadata,
     approximation: ApproximationEngine,
-    execution_lock: Mutex<()>,
+    estimator_slots: Arc<Semaphore>,
+    single_flight: Mutex<HashMap<String, Weak<Mutex<()>>>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum WorkerControl {
     Completed,
     Cancelled,
@@ -47,12 +57,19 @@ struct PlanOptions {
     deadline: tokio::time::Instant,
 }
 
+struct PlanExecution {
+    control: WorkerControl,
+    results: BTreeMap<Attack, AttackResult>,
+}
+
 impl Scheduler {
     pub fn new(
         database: Database,
         upstream: EstimatorClient,
         metadata: Metadata,
         approximation: ApproximationEngine,
+        case_concurrency: usize,
+        estimator_concurrency: usize,
     ) -> (Self, SchedulerHandle) {
         let (sender, receiver) = mpsc::channel(MAX_QUEUED_JOBS);
         let runner = Arc::new(Runner {
@@ -60,7 +77,8 @@ impl Scheduler {
             upstream,
             metadata,
             approximation,
-            execution_lock: Mutex::new(()),
+            estimator_slots: Arc::new(Semaphore::new(estimator_concurrency)),
+            single_flight: Mutex::new(HashMap::new()),
         });
         let handle = SchedulerHandle {
             sender,
@@ -71,6 +89,7 @@ impl Scheduler {
             Self {
                 receiver,
                 handle: handle.clone(),
+                case_slots: Arc::new(Semaphore::new(case_concurrency)),
             },
             handle,
         )
@@ -83,9 +102,16 @@ impl Scheduler {
         }
         tokio::spawn(async move {
             while let Some(job_id) = self.receiver.recv().await {
-                if let Err(error) = self.handle.process(job_id).await {
-                    tracing::error!(%error, "scheduler job failed");
-                }
+                let Ok(permit) = self.case_slots.clone().acquire_owned().await else {
+                    break;
+                };
+                let handle = self.handle.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    if let Err(error) = handle.process(job_id).await {
+                        tracing::error!(%error, "scheduler job failed");
+                    }
+                });
             }
         });
         Ok(())
@@ -158,7 +184,6 @@ impl SchedulerHandle {
     }
 
     async fn process(&self, job_id: String) -> Result<(), ServiceError> {
-        let _guard = self.runner.execution_lock.lock().await;
         let Some(work) = self.runner.database.claim_job(&job_id).await? else {
             for promoted in self.runner.database.promote_pending_jobs().await? {
                 self.enqueue(promoted).await?;
@@ -238,9 +263,9 @@ impl Runner {
     }
 
     async fn process_work(
-        &self,
+        self: &Arc<Self>,
         work: &JobWork,
-        cancellation: &Notify,
+        cancellation: &Arc<Notify>,
     ) -> Result<(RunState, Option<SecurityReportEntry>), ServiceError> {
         let context = self.case_context(&work.case)?;
         let deadline =
@@ -259,6 +284,7 @@ impl Runner {
                 );
             }
         }
+
         let cached_slow = slow_attacks_for_problem(&work.case.problem)
             .iter()
             .copied()
@@ -267,35 +293,8 @@ impl Runner {
         self.apply_approximations(&context, &cached_slow, &mut results)
             .await?;
 
-        let missing_fast = fast_attacks_for_problem(&work.case.problem)
-            .iter()
-            .copied()
-            .filter(|attack| !results.contains_key(attack))
-            .collect::<Vec<_>>();
-        if !missing_fast.is_empty() {
-            match self
-                .run_plan(
-                    work,
-                    &context,
-                    PlanOptions {
-                        targets: missing_fast.clone(),
-                        deadline,
-                    },
-                    cancellation,
-                    &mut results,
-                )
-                .await?
-            {
-                WorkerControl::Cancelled => {
-                    return Ok(self.cancelled_completion(work, &context, results));
-                }
-                WorkerControl::TimedOut => {
-                    return Ok(self.timed_out_completion(work, &context, results));
-                }
-                WorkerControl::Completed => {}
-            }
-        }
-
+        let mut plans = fast_attack_groups(&work.case.problem, &results);
+        let mut fast_estimate = false;
         if work.request.mode == EstimateMode::Rough {
             let missing_slow = slow_attacks_for_problem(&work.case.problem)
                 .iter()
@@ -318,60 +317,57 @@ impl Runner {
                     },
                 });
             }
-            let entry = self.report_entry(work, &context, results, true);
-            let state = if entry.summary.complete {
-                RunState::Completed { finished_at: now() }
-            } else {
-                RunState::Partial { finished_at: now() }
-            };
-            return Ok((state, Some(entry)));
-        }
-
-        let missing_slow = slow_attacks_for_problem(&work.case.problem)
-            .iter()
-            .copied()
-            .filter(|attack| !results.contains_key(attack))
-            .collect::<Vec<_>>();
-        let missing_slow = self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
-        let mut fast_estimate = false;
-        for (index, attack) in missing_slow.iter().copied().enumerate() {
+            fast_estimate = true;
+        } else {
+            let missing_slow = slow_attacks_for_problem(&work.case.problem)
+                .iter()
+                .copied()
+                .filter(|attack| !results.contains_key(attack))
+                .collect::<Vec<_>>();
+            let missing_slow =
+                self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
             let policy = work.request.slow_attack_policy.as_ref().ok_or_else(|| {
                 ServiceError::Internal("missing validated slow attack policy".to_owned())
             })?;
-            if self.preflight_allows_skip(&context, attack, policy)? {
-                fast_estimate = true;
-                self.apply_approximations(&context, &[attack], &mut results)
-                    .await?;
-                continue;
-            }
-            match self
-                .run_plan(
-                    work,
-                    &context,
-                    PlanOptions {
-                        targets: vec![attack],
-                        deadline,
-                    },
-                    cancellation,
-                    &mut results,
-                )
-                .await?
-            {
-                WorkerControl::Cancelled => {
-                    return Ok(self.cancelled_completion(work, &context, results));
-                }
-                WorkerControl::TimedOut => {
-                    let unfinished = &missing_slow[index..];
-                    insert_timeouts(unfinished, work.request.timeout_seconds, &mut results);
-                    self.apply_approximations(&context, unfinished, &mut results)
-                        .await?;
-                    return Ok(self.timed_out_completion(work, &context, results));
-                }
-                WorkerControl::Completed => {
+            for attack in missing_slow {
+                if self.preflight_allows_skip(&context, attack, policy)? {
+                    fast_estimate = true;
                     self.apply_approximations(&context, &[attack], &mut results)
                         .await?;
+                } else {
+                    plans.push(vec![attack]);
                 }
             }
+        }
+
+        let control = if plans.is_empty() {
+            WorkerControl::Completed
+        } else {
+            let execution = self
+                .run_plans(work, &context, plans, deadline, cancellation)
+                .await?;
+            results.extend(execution.results);
+            execution.control
+        };
+
+        if work.request.mode == EstimateMode::Normal {
+            let slow = slow_attacks_for_problem(&work.case.problem)
+                .iter()
+                .copied()
+                .filter(|attack| results.contains_key(attack))
+                .collect::<Vec<_>>();
+            self.apply_approximations(&context, &slow, &mut results)
+                .await?;
+        }
+
+        match control {
+            WorkerControl::Cancelled => {
+                return Ok(self.cancelled_completion(work, &context, results));
+            }
+            WorkerControl::TimedOut => {
+                return Ok(self.timed_out_completion(work, &context, results));
+            }
+            WorkerControl::Completed => {}
         }
 
         let entry = self.report_entry(work, &context, results, fast_estimate);
@@ -381,6 +377,62 @@ impl Runner {
             RunState::Partial { finished_at: now() }
         };
         Ok((state, Some(entry)))
+    }
+
+    async fn run_plans(
+        self: &Arc<Self>,
+        work: &JobWork,
+        context: &CaseContext,
+        plans: Vec<Vec<Attack>>,
+        deadline: tokio::time::Instant,
+        cancellation: &Arc<Notify>,
+    ) -> Result<PlanExecution, ServiceError> {
+        let mut tasks = JoinSet::new();
+        for targets in plans {
+            let runner = Arc::clone(self);
+            let work = work.clone();
+            let context = context.clone();
+            let cancellation = Arc::clone(cancellation);
+            tasks.spawn(async move {
+                runner
+                    .run_plan(
+                        &work,
+                        &context,
+                        PlanOptions { targets, deadline },
+                        &cancellation,
+                    )
+                    .await
+            });
+        }
+
+        let mut control = WorkerControl::Completed;
+        let mut results = BTreeMap::new();
+        while let Some(joined) = tasks.join_next().await {
+            let execution = match joined {
+                Ok(Ok(execution)) => execution,
+                Ok(Err(error)) => {
+                    tasks.shutdown().await;
+                    return Err(error);
+                }
+                Err(error) => {
+                    tasks.shutdown().await;
+                    return Err(ServiceError::Internal(format!(
+                        "estimator plan task failed: {error}"
+                    )));
+                }
+            };
+            results.extend(execution.results);
+            control = match (control, execution.control) {
+                (WorkerControl::Cancelled, _) | (_, WorkerControl::Cancelled) => {
+                    WorkerControl::Cancelled
+                }
+                (WorkerControl::TimedOut, _) | (_, WorkerControl::TimedOut) => {
+                    WorkerControl::TimedOut
+                }
+                _ => WorkerControl::Completed,
+            };
+        }
+        Ok(PlanExecution { control, results })
     }
 
     fn preflight_allows_skip(
@@ -493,20 +545,143 @@ impl Runner {
         Ok(())
     }
 
+    async fn acquire_flight_locks(
+        &self,
+        work: &JobWork,
+        context: &CaseContext,
+        targets: &[Attack],
+        deadline: tokio::time::Instant,
+        cancellation: &Notify,
+    ) -> Result<Vec<OwnedMutexGuard<()>>, WorkerControl> {
+        let mut keyed_locks = {
+            let mut in_flight = self.single_flight.lock().await;
+            in_flight.retain(|_, lock| lock.strong_count() > 0);
+            targets
+                .iter()
+                .map(|attack| {
+                    let key = context.cache_identity(*attack).hash();
+                    let lock = in_flight
+                        .get(&key)
+                        .and_then(Weak::upgrade)
+                        .unwrap_or_else(|| {
+                            let lock = Arc::new(Mutex::new(()));
+                            in_flight.insert(key.clone(), Arc::downgrade(&lock));
+                            lock
+                        });
+                    (key, lock)
+                })
+                .collect::<Vec<_>>()
+        };
+        keyed_locks.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut guards = Vec::with_capacity(keyed_locks.len());
+        for (_, lock) in keyed_locks {
+            let acquire = lock.lock_owned();
+            tokio::pin!(acquire);
+            let cancel =
+                wait_for_cancel(&self.database, &work.batch_id, &work.job_id, cancellation);
+            tokio::pin!(cancel);
+            let guard = tokio::select! {
+                biased;
+                guard = &mut acquire => guard,
+                () = tokio::time::sleep_until(deadline) => {
+                    return Err(WorkerControl::TimedOut);
+                }
+                () = &mut cancel => return Err(WorkerControl::Cancelled),
+            };
+            guards.push(guard);
+        }
+        Ok(guards)
+    }
+
     async fn run_plan(
         &self,
         work: &JobWork,
         context: &CaseContext,
         options: PlanOptions,
         cancellation: &Notify,
-        results: &mut BTreeMap<Attack, AttackResult>,
-    ) -> Result<WorkerControl, ServiceError> {
-        let PlanOptions { targets, deadline } = options;
+    ) -> Result<PlanExecution, ServiceError> {
+        let PlanOptions {
+            mut targets,
+            deadline,
+        } = options;
+        let mut results = BTreeMap::new();
+        if deadline <= tokio::time::Instant::now() {
+            insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+            return Ok(PlanExecution {
+                control: WorkerControl::TimedOut,
+                results,
+            });
+        }
+
+        let _flight_guards = match self
+            .acquire_flight_locks(work, context, &targets, deadline, cancellation)
+            .await
+        {
+            Ok(guards) => guards,
+            Err(control) => {
+                if control == WorkerControl::TimedOut {
+                    insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+                }
+                return Ok(PlanExecution { control, results });
+            }
+        };
+
+        for attack in &targets {
+            let key = context.cache_identity(*attack).hash();
+            if let Some(cached) = self.database.cached_outcome(&key).await? {
+                results.insert(
+                    *attack,
+                    AttackResult {
+                        attack: *attack,
+                        cached: true,
+                        outcome: cached.outcome,
+                    },
+                );
+            }
+        }
+        targets.retain(|attack| !results.contains_key(attack));
+        if targets.is_empty() {
+            return Ok(PlanExecution {
+                control: WorkerControl::Completed,
+                results,
+            });
+        }
+
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            insert_timeouts(&targets, work.request.timeout_seconds, results);
-            return Ok(WorkerControl::TimedOut);
+            insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+            return Ok(PlanExecution {
+                control: WorkerControl::TimedOut,
+                results,
+            });
         }
+
+        let slot = self.estimator_slots.clone().acquire_owned();
+        tokio::pin!(slot);
+        let cancel = wait_for_cancel(&self.database, &work.batch_id, &work.job_id, cancellation);
+        tokio::pin!(cancel);
+        let _slot = tokio::select! {
+            biased;
+            slot = &mut slot => slot.map_err(|_| {
+                ServiceError::Internal("estimator concurrency limiter closed".to_owned())
+            })?,
+            () = tokio::time::sleep_until(deadline) => {
+                insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+                return Ok(PlanExecution {
+                    control: WorkerControl::TimedOut,
+                    results,
+                });
+            }
+            () = &mut cancel => {
+                return Ok(PlanExecution {
+                    control: WorkerControl::Cancelled,
+                    results,
+                });
+            }
+        };
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let worker_timeout = remaining.as_secs().max(1).min(work.request.timeout_seconds);
         let request = WorkerRequest::new(
             context.estimator_problem.clone(),
@@ -523,16 +698,27 @@ impl Runner {
             biased;
             response = &mut worker => response,
             () = tokio::time::sleep_until(deadline) => {
-                insert_timeouts(&targets, work.request.timeout_seconds, results);
-                return Ok(WorkerControl::TimedOut);
+                insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+                return Ok(PlanExecution {
+                    control: WorkerControl::TimedOut,
+                    results,
+                });
             }
-            () = &mut cancel => return Ok(WorkerControl::Cancelled),
+            () = &mut cancel => {
+                return Ok(PlanExecution {
+                    control: WorkerControl::Cancelled,
+                    results,
+                });
+            }
         };
         let response = match response {
             Ok(response) => response,
             Err(ServiceError::UpstreamTimeout(_)) => {
-                insert_timeouts(&targets, work.request.timeout_seconds, results);
-                return Ok(WorkerControl::TimedOut);
+                insert_timeouts(&targets, work.request.timeout_seconds, &mut results);
+                return Ok(PlanExecution {
+                    control: WorkerControl::TimedOut,
+                    results,
+                });
             }
             Err(error) => return Err(error),
         };
@@ -624,7 +810,10 @@ impl Runner {
                 "worker reported a retryable attack failure".to_owned(),
             ));
         }
-        Ok(WorkerControl::Completed)
+        Ok(PlanExecution {
+            control: WorkerControl::Completed,
+            results,
+        })
     }
 
     fn cancelled_completion(
@@ -816,6 +1005,7 @@ impl Runner {
     }
 }
 
+#[derive(Clone)]
 struct CaseContext {
     estimator_problem: EstimatorProblem,
     analysis_model: AnalysisModel,
@@ -842,6 +1032,39 @@ impl CaseContext {
             ServiceError::Internal("missing applicability rule for adaptive slow attack".to_owned())
         })
     }
+}
+
+fn fast_attack_groups(
+    problem: &crate::Problem,
+    existing: &BTreeMap<Attack, AttackResult>,
+) -> Vec<Vec<Attack>> {
+    let families = match problem {
+        crate::Problem::Lwe(_) | crate::Problem::Rlwe(_) | crate::Problem::Glwe(_) => vec![
+            vec![
+                Attack::Usvp,
+                Attack::Bdd,
+                Attack::BddHybrid,
+                Attack::BddMitmHybrid,
+            ],
+            vec![Attack::Dual, Attack::DualHybrid],
+        ],
+        crate::Problem::Ntru(_) => vec![
+            vec![Attack::Usvp],
+            vec![Attack::Dsd],
+            vec![Attack::Bdd, Attack::BddHybrid, Attack::BddMitmHybrid],
+        ],
+        crate::Problem::Sis(_) => vec![vec![Attack::Lattice]],
+    };
+    families
+        .into_iter()
+        .map(|family| {
+            family
+                .into_iter()
+                .filter(|attack| !existing.contains_key(attack))
+                .collect::<Vec<_>>()
+        })
+        .filter(|family| !family.is_empty())
+        .collect()
 }
 
 async fn wait_for_cancel(database: &Database, batch_id: &str, job_id: &str, notify: &Notify) {
@@ -913,5 +1136,33 @@ mod tests {
             &ExactDecimal::new("144").unwrap(),
             &policy
         ));
+    }
+
+    #[test]
+    fn lwe_fast_attacks_keep_the_primal_family_together() {
+        let request: EstimateRequest =
+            serde_json::from_str(include_str!("../../fixtures/examples/demo-run.json")).unwrap();
+        assert_eq!(
+            fast_attack_groups(&request.cases[0].problem, &BTreeMap::new()),
+            vec![
+                vec![
+                    Attack::Usvp,
+                    Attack::Bdd,
+                    Attack::BddHybrid,
+                    Attack::BddMitmHybrid,
+                ],
+                vec![Attack::Dual, Attack::DualHybrid],
+            ]
+        );
+
+        let mut existing = BTreeMap::new();
+        insert_timeouts(&[Attack::Usvp], 1, &mut existing);
+        assert_eq!(
+            fast_attack_groups(&request.cases[0].problem, &existing),
+            vec![
+                vec![Attack::Bdd, Attack::BddHybrid, Attack::BddMitmHybrid],
+                vec![Attack::Dual, Attack::DualHybrid],
+            ]
+        );
     }
 }

@@ -12,6 +12,8 @@ use crate::{
 };
 
 pub const MAX_QUEUED_JOBS: usize = 2_000;
+pub const DEFAULT_CASE_CONCURRENCY: usize = 2;
+pub const DEFAULT_ESTIMATOR_CONCURRENCY: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -21,6 +23,8 @@ pub struct AppConfig {
     pub poll_after_seconds: u64,
     pub api_token: Option<String>,
     pub approximation_model_path: Option<PathBuf>,
+    pub case_concurrency: usize,
+    pub estimator_concurrency: usize,
 }
 
 impl AppConfig {
@@ -40,8 +44,30 @@ impl AppConfig {
             approximation_model_path: std::env::var_os("LATTICE_SECURITY_APPROXIMATION_MODEL")
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from),
+            case_concurrency: concurrency_from_environment(
+                "LATTICE_SECURITY_CASE_CONCURRENCY",
+                DEFAULT_CASE_CONCURRENCY,
+            )?,
+            estimator_concurrency: concurrency_from_environment(
+                "LATTICE_SECURITY_ESTIMATOR_CONCURRENCY",
+                DEFAULT_ESTIMATOR_CONCURRENCY,
+            )?,
         })
     }
+}
+
+fn concurrency_from_environment(name: &str, default: usize) -> Result<usize, ServiceError> {
+    let Some(value) = std::env::var_os(name) else {
+        return Ok(default);
+    };
+    let value = value
+        .to_str()
+        .ok_or_else(|| ServiceError::BadRequest(format!("{name} must be valid UTF-8")))?;
+    value
+        .parse::<usize>()
+        .ok()
+        .filter(|value| (1..=32).contains(value))
+        .ok_or_else(|| ServiceError::BadRequest(format!("{name} must be between 1 and 32")))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -157,8 +183,14 @@ impl AppState {
             &metadata.context(),
         )?;
         metadata.approximation = approximation.metadata();
-        let (scheduler, handle) =
-            Scheduler::new(database.clone(), upstream, metadata.clone(), approximation);
+        let (scheduler, handle) = Scheduler::new(
+            database.clone(),
+            upstream,
+            metadata.clone(),
+            approximation,
+            config.case_concurrency,
+            config.estimator_concurrency,
+        );
         let state = Arc::new(Self {
             database,
             scheduler: handle,

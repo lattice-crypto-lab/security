@@ -15,6 +15,9 @@ attack, and calls the internal estimator adapter.
 - `LATTICE_SECURITY_APPROXIMATION_MODEL` optionally points to a reviewed
   `lattice-security/slow-attack-model` v1 JSON artifact. A missing path disables
   approximation; an invalid or provenance-mismatched artifact prevents startup.
+- `LATTICE_SECURITY_CASE_CONCURRENCY` defaults to `2` concurrent cases.
+- `LATTICE_SECURITY_ESTIMATOR_CONCURRENCY` defaults to `3` concurrent estimator
+  plans and should match the adapter's `ESTIMATOR_CONCURRENCY`.
 
 ## Public endpoints
 
@@ -63,6 +66,11 @@ run the real attack. A later normal run reuses fast results produced by a rough
 run. Submitting identical work creates separate batch records, while
 completed-cache lookup and scheduler single-flight prevent duplicate estimator
 execution.
+
+Independent LWE work is split into `usvp`, the BDD dependency family, the dual
+family, `arora_gb`, and `bkw` plans. Cases and plans run concurrently under
+separate bounds; lattice-estimator itself stays at `jobs=1` so parallelism has
+one owner and cannot multiply inside each Sage process.
 
 HTMX 2.0.10 is version-pinned with SRI. The UI is server-rendered; imported
 sets and active batches are reconstructed from SQLite after reload or

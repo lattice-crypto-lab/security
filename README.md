@@ -42,6 +42,10 @@ LATTICE_SECURITY_API_TOKEN=replace-with-a-random-token
 # Optional reproducible image versions; the default is latest.
 SECURITY_SERVICE_VERSION=0.1.2
 ESTIMATOR_API_VERSION=0.1.1
+
+# Optional bounded parallelism.
+LATTICE_SECURITY_CASE_CONCURRENCY=2
+ESTIMATOR_CONCURRENCY=3
 ```
 
 | Variable | Default | Purpose |
@@ -51,6 +55,8 @@ ESTIMATOR_API_VERSION=0.1.1
 | `LATTICE_SECURITY_API_TOKEN` | empty | Shared Web login and Bearer API token |
 | `SECURITY_SERVICE_VERSION` | `latest` | Rust service image tag |
 | `ESTIMATOR_API_VERSION` | `latest` | Sage adapter image tag |
+| `LATTICE_SECURITY_CASE_CONCURRENCY` | `2` | Cases processed concurrently |
+| `ESTIMATOR_CONCURRENCY` | `3` | Maximum concurrent Sage processes |
 
 Apply configuration changes with:
 
@@ -63,6 +69,7 @@ docker compose up -d --pull always
 - Direct `rough` or `normal` security estimation for one or more cases.
 - A parameter-set library with editing, import, export, and selected-case runs.
 - Persistent batch history and immutable computed attack caching.
+- Bounded parallel execution across cases and independent attack families.
 - Versioned handling of the expensive `arora_gb` and `bkw` attacks.
 - Explicit RLWE/GLWE coefficient-embedding reports instead of silent reduction.
 
