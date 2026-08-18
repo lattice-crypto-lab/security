@@ -485,28 +485,17 @@
           ]
         },
         {
+          "description": "Independent coefficients with P(-1)=1/4, P(0)=1/2, and P(1)=1/4.",
           "type": "object",
           "properties": {
             "kind": {
               "type": "string",
               "const": "sparse_ternary"
-            },
-            "negative_count": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
-            },
-            "positive_count": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
             }
           },
           "additionalProperties": false,
           "required": [
-            "kind",
-            "positive_count",
-            "negative_count"
+            "kind"
           ]
         },
         {

@@ -43,14 +43,23 @@ docker compose --profile calibration run --rm calibration collect \
   --estimator-url http://estimator-api:8000
 ```
 
-The checked-in v1 plan contains 896 attack observations. Each observation may
-run for up to 3,600 seconds, so collection can take a long time. Re-running the
-same command resumes completed observations. Transient collection failures and
-timeouts remain eligible for retry; computed and definitively unsupported rows
-are skipped.
+The checked-in classical-only v1 plan contains 640 attack observations. It
+covers dimensions from 128 through `2^16`; the accepted artifact's actual
+domain is still derived only from successfully computed observations. Each
+observation may run for up to 3,600 seconds, so collection can take a long
+time. Re-running the same command resumes completed observations. Transient
+collection failures and timeouts remain eligible for retry; computed and
+definitively unsupported rows are skipped.
 
 Do not mix observation files from different estimator provenance. The model
 builder rejects a mixed dataset.
+
+The v1 secret axis covers `uniform_binary` and Primus `sparse_ternary`.
+`sparse_ternary` means independent coefficients with probabilities
+`P(-1)=1/4`, `P(0)=1/2`, and `P(1)=1/4`; it is not a fixed-weight key. Because
+lattice-estimator only exposes a fixed-composition sparse ternary object, the
+adapter uses the balanced modal composition near `(n/4,n/4)` as the estimator
+model. Quantum (`LaaMosPol14`) calibration is intentionally deferred.
 
 ## Build and review
 

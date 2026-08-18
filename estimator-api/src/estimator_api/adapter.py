@@ -182,11 +182,14 @@ def _distribution(distribution: Any, logical_length: int | None) -> Any:
     if isinstance(distribution, UniformTernary):
         return ND.Uniform(-1, 1, n=logical_length)
     if isinstance(distribution, SparseTernary):
-        return ND.SparseTernary(
-            distribution.positive_count,
-            distribution.negative_count,
-            n=logical_length,
-        )
+        if logical_length is None:
+            raise AssertionError("sparse ternary is only valid for a secret with a known length")
+        # Primus defines sparse_ternary coefficient-wise with probabilities
+        # 1/4, 1/2, 1/4. lattice-estimator only exposes a fixed-composition
+        # SparseTernary, so use its balanced modal composition as the explicit
+        # estimator model. The public distribution remains probabilistic.
+        typical_sign_weight = (logical_length + 2) // 4
+        return ND.SparseTernary(typical_sign_weight, typical_sign_weight, n=logical_length)
     if isinstance(distribution, FixedWeightBinary):
         return ND.SparseBinary(distribution.hamming_weight, n=logical_length)
     if isinstance(distribution, FixedWeightTernary):

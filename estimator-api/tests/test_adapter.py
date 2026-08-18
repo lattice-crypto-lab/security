@@ -79,9 +79,9 @@ def fake_estimator(monkeypatch: pytest.MonkeyPatch) -> None:
         (UniformBinary(kind="uniform_binary"), 8, ("uniform", 0, 1, 8)),
         (UniformTernary(kind="uniform_ternary"), 9, ("uniform", -1, 1, 9)),
         (
-            SparseTernary(kind="sparse_ternary", positive_count=2, negative_count=3),
-            12,
-            ("sparse_ternary", 2, 3, 12),
+            SparseTernary(kind="sparse_ternary"),
+            10,
+            ("sparse_ternary", 3, 3, 10),
         ),
         (
             FixedWeightBinary(kind="fixed_weight_binary", hamming_weight=3),

@@ -371,20 +371,6 @@ fn validate_secret(
     path: &str,
 ) -> Result<(), ValidationError> {
     match distribution {
-        SecretDistribution::SparseTernary {
-            positive_count,
-            negative_count,
-        } => {
-            if positive_count
-                .checked_add(*negative_count)
-                .is_none_or(|count| count > logical_length)
-            {
-                return Err(ValidationError::new(
-                    path,
-                    "sparse ternary counts exceed secret length",
-                ));
-            }
-        }
         SecretDistribution::FixedWeightBinary { hamming_weight } => {
             if *hamming_weight > logical_length {
                 return Err(ValidationError::new(
@@ -431,7 +417,9 @@ fn validate_secret(
                 ));
             }
         }
-        SecretDistribution::UniformBinary | SecretDistribution::UniformTernary => {}
+        SecretDistribution::UniformBinary
+        | SecretDistribution::UniformTernary
+        | SecretDistribution::SparseTernary {} => {}
     }
     Ok(())
 }

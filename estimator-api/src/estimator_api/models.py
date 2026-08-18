@@ -61,8 +61,6 @@ class UniformTernary(StrictModel):
 
 class SparseTernary(StrictModel):
     kind: Literal["sparse_ternary"]
-    positive_count: NonNegativeU64
-    negative_count: NonNegativeU64
 
 
 class FixedWeightBinary(StrictModel):
@@ -425,11 +423,6 @@ def _require_modulus(value: str) -> None:
 
 
 def _require_secret_length(secret: SecretDistribution, logical_length: int) -> None:
-    if (
-        isinstance(secret, SparseTernary)
-        and secret.positive_count + secret.negative_count > logical_length
-    ):
-        raise ValueError("sparse ternary counts exceed logical secret length")
     if isinstance(secret, FixedWeightBinary) and secret.hamming_weight > logical_length:
         raise ValueError("fixed binary weight exceeds logical secret length")
     if (

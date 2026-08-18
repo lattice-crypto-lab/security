@@ -14,7 +14,7 @@
         "dimension": 512,
         "modulus": "12289",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 128, "negative_count": 128 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "3.7" }
       }
     },
@@ -26,7 +26,7 @@
         "dimension": 1024,
         "modulus": "18433",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 256, "negative_count": 256 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
       }
     },
@@ -38,7 +38,7 @@
         "dimension": 1024,
         "modulus": "40961",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 256, "negative_count": 256 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
       }
     },
@@ -50,7 +50,7 @@
         "dimension": 4096,
         "modulus": "1267650599969977236268072599553",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
       }
     },
@@ -62,7 +62,7 @@
         "dimension": 4096,
         "modulus": "649033470896967801447398927572993",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "5.6" }
       }
     },
@@ -74,7 +74,7 @@
         "dimension": 4096,
         "modulus": "1298070268741604259594248958689281",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "11.12" }
       }
     },
@@ -86,7 +86,7 @@
         "dimension": 4096,
         "modulus": "2596139918495516923224825790013441",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 1024, "negative_count": 1024 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "22.4" }
       }
     }

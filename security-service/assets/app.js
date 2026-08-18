@@ -162,12 +162,6 @@ function sampleValue(row) {
 function secretValue(row) {
   const kind = quickField(row, "secret_kind").value;
   switch (kind) {
-    case "sparse_ternary":
-      return {
-        kind,
-        positive_count: integerValue(row, "secret_positive_count"),
-        negative_count: integerValue(row, "secret_negative_count"),
-      };
     case "fixed_weight_binary":
       return { kind, hamming_weight: integerValue(row, "secret_hamming_weight") };
     case "fixed_weight_ternary":

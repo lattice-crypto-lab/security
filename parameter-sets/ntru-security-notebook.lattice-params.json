@@ -9,13 +9,13 @@
     {
       "id": "lwe",
       "name": "LWE",
-      "description": "原 SparseTernary 调用按长度 780、正负权重各 195 的设计意图规范化。",
+      "description": "原 SparseTernary 调用按 Primus 概率语义规范化：P(-1)=1/4、P(0)=1/2、P(1)=1/4。",
       "problem": {
         "kind": "lwe",
         "dimension": 780,
         "modulus": "1024",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 195, "negative_count": 195 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "3.2" }
       }
     },
@@ -27,7 +27,7 @@
         "dimension": 780,
         "modulus": "132120577",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "sparse_ternary", "positive_count": 195, "negative_count": 195 },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "409.6" }
       }
     },

@@ -23,9 +23,11 @@
 | `ssle.ipynb` | `ssle-notebook.lattice-params.json` | 与脚本不同的 SSLE 2–4 噪声独立保留 |
 
 所有旧 LWE 调用都未指定样本上限，因此迁移为 `unlimited`。旧方案中标注为
-Binary 的密钥迁移为 `uniform_binary`；直接使用 `ND.SparseTernary(p, m, n)`
-的密钥迁移为 `sparse_ternary`，保留其中 +1/-1 的数量。不会仅根据旧代码为
-estimator 构造分布的方式，把方案含义强制改成 fixed-weight。旧
+Binary 的密钥迁移为 `uniform_binary`。Primus 的 `sparse_ternary` 表示逐系数
+独立采样，概率固定为 `P(-1)=1/4`、`P(0)=1/2`、`P(1)=1/4`，因此协议中不带
+权重；只有旧参数明确偏离该概率语义时才保留为 `fixed_weight_ternary`。上游
+lattice-estimator 没有对应的概率型对象，adapter 使用平衡的典型组成
+`(+1,-1)≈(n/4,n/4)` 建模，但不会改变公共参数的分布类型。旧
 `EXACT`/`SMART_EXACT` 是运行策略，不属于参数身份；新服务在运行时通过
 “正常/快速”和慢攻击策略控制执行。
 

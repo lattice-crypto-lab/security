@@ -193,10 +193,8 @@ pub struct NegacyclicRing {
 pub enum SecretDistribution {
     UniformBinary,
     UniformTernary,
-    SparseTernary {
-        positive_count: u64,
-        negative_count: u64,
-    },
+    /// Independent coefficients with P(-1)=1/4, P(0)=1/2, and P(1)=1/4.
+    SparseTernary {},
     FixedWeightBinary {
         hamming_weight: u64,
     },

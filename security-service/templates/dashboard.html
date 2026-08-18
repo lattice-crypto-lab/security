@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice Security</title>
-  <link rel="stylesheet" href="/assets/app.css?v=6">
+  <link rel="stylesheet" href="/assets/app.css?v=7">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
-  <script defer src="/assets/app.js?v=6"></script>
+  <script defer src="/assets/app.js?v=7"></script>
 </head>
 <body>
   <header class="topbar">
@@ -121,8 +121,7 @@
         <div class="distribution-grid" data-problems="lwe rlwe glwe ntru">
           <fieldset>
             <legend>私钥分布</legend>
-            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="sparse_ternary">sparse ternary</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
-            <div class="quick-grid" data-secret="sparse_ternary"><label>+1 数量<input data-field="secret_positive_count" type="number" min="0" step="1" value="256" required></label><label>-1 数量<input data-field="secret_negative_count" type="number" min="0" step="1" value="256" required></label></div>
+            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="sparse_ternary">sparse ternary（±1 各 1/4）</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
             <label data-secret="fixed_weight_binary">Hamming weight<input data-field="secret_hamming_weight" type="number" min="0" step="1" value="64" required></label>
             <div class="quick-grid" data-secret="fixed_weight_ternary"><label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label><label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label></div>
             <label data-secret="discrete_gaussian">标准差 σ<input data-field="secret_standard_deviation" value="3.2" inputmode="decimal" required></label>

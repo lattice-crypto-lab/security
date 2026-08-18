@@ -318,10 +318,9 @@ fn secret_distribution(distribution: &SecretDistribution) -> String {
     match distribution {
         SecretDistribution::UniformBinary => "secret: uniform binary".to_owned(),
         SecretDistribution::UniformTernary => "secret: uniform ternary".to_owned(),
-        SecretDistribution::SparseTernary {
-            positive_count,
-            negative_count,
-        } => format!("secret: sparse ternary (+1={positive_count}, -1={negative_count})"),
+        SecretDistribution::SparseTernary {} => {
+            "secret: sparse ternary (P(-1)=1/4, P(0)=1/2, P(1)=1/4)".to_owned()
+        }
         SecretDistribution::FixedWeightBinary { hamming_weight } => {
             format!("secret: fixed-weight binary (weight={hamming_weight})")
         }

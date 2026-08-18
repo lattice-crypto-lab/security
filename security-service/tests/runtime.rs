@@ -546,7 +546,8 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
     assert!(dashboard.1.contains("value=\"save_run\">保存并开始估算"));
     assert!(dashboard.1.contains("name=\"parameter_set_id\""));
     assert!(dashboard.1.contains("value=\"sparse_ternary\""));
-    assert!(dashboard.1.contains("data-field=\"secret_positive_count\""));
+    assert!(dashboard.1.contains("sparse ternary（±1 各 1/4）"));
+    assert!(!dashboard.1.contains("data-field=\"secret_positive_count\""));
     assert!(dashboard.1.contains("data-workspace-tabs"));
     assert!(dashboard.1.contains("冲突策略是什么意思？"));
     assert!(dashboard.1.contains("历史批次和报告仍保留原始参数快照"));

@@ -26,11 +26,7 @@
         "dimension": 1024,
         "modulus": "134215681",
         "samples": { "kind": "unlimited" },
-        "secret": {
-          "kind": "sparse_ternary",
-          "positive_count": 256,
-          "negative_count": 256
-        },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "4" }
       }
     }

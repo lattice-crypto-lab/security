@@ -56,8 +56,10 @@ def test_checked_in_v1_plan_has_buildable_holdout_groups() -> None:
         }
         groups.setdefault(tool.group_key(value), []).append(value)
 
-    assert len(requests) == 896
-    assert len(groups) == 8
+    assert len(requests) == 640
+    assert len(groups) == 4
+    assert max(request["problem"]["dimension"] for request in requests) == 2**16
+    assert {request["models"]["cost_model"] for request in requests} == {"BDGL16"}
     assert all(
         tool.build_group(key, values, neighbor_count=4, cushion=2.0)["holdout"]["samples"] >= 4
         for key, values in groups.items()

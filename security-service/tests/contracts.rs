@@ -119,10 +119,7 @@ fn coefficient_embedding_preserves_source_and_derives_checked_lwe() {
         },
         dimension: 2,
         samples: SampleCount::Finite { count: 3 },
-        secret: SecretDistribution::SparseTernary {
-            positive_count: 512,
-            negative_count: 512,
-        },
+        secret: SecretDistribution::SparseTernary {},
         error: gaussian("3.2"),
     });
     let model = analysis_model_for(
@@ -221,21 +218,19 @@ fn cache_hash_ignores_field_order_and_tracks_estimator_context() {
 }
 
 #[test]
-fn parameter_set_validation_reports_case_path() {
+fn sparse_ternary_rejects_obsolete_fixed_counts() {
     let value = r#"{
       "format":"lattice-security/parameter-set","version":1,
       "id":"bad-set","name":"Bad set","cases":[{
         "id":"case","name":"Case","problem":{
           "kind":"lwe","dimension":8,"modulus":"16",
           "samples":{"kind":"finite","count":8},
-          "secret":{"kind":"sparse_ternary","positive_count":5,"negative_count":4},
+          "secret":{"kind":"sparse_ternary","positive_count":2,"negative_count":2},
           "error":{"kind":"discrete_gaussian","standard_deviation":"1"}
         }
       }]
     }"#;
-    let parameter_set: ParameterSetFile = serde_json::from_str(value).unwrap();
-    let error = parameter_set.validate().unwrap_err();
-    assert_eq!(error.path, "cases[0].problem.secret");
+    assert!(serde_json::from_str::<ParameterSetFile>(value).is_err());
 }
 
 #[test]

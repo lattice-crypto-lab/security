@@ -114,14 +114,16 @@ def test_fixed_weight_uses_complete_logical_secret_length() -> None:
         EstimateRequest.model_validate_json(json.dumps(source))
 
 
-def test_sparse_ternary_uses_complete_logical_secret_length() -> None:
+def test_sparse_ternary_has_fixed_coefficient_probabilities() -> None:
     source = request_data()
     source["problem"]["secret"] = {  # type: ignore[index]
         "kind": "sparse_ternary",
-        "positive_count": 300,
-        "negative_count": 300,
     }
-    with pytest.raises(ValidationError, match="logical secret length"):
+    request = EstimateRequest.model_validate_json(json.dumps(source))
+    assert request.problem.secret.kind == "sparse_ternary"
+
+    source["problem"]["secret"]["positive_count"] = 128  # type: ignore[index]
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         EstimateRequest.model_validate_json(json.dumps(source))
 
 
