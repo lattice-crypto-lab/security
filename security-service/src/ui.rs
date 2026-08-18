@@ -12,8 +12,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    AttackOutcome, EstimateRequest, ExactDecimal, ParameterCase, ParameterSetFile, PositiveInteger,
-    SlowAttackPolicy, SweepAxis, SweepRequest, Validate,
+    AttackOutcome, EstimateMode, EstimateRequest, ExactDecimal, ParameterCase, ParameterSetFile,
+    PositiveInteger, SlowAttackPolicy, SweepAxis, SweepRequest, Validate,
     database::ParameterSetSummary,
     error::ServiceError,
     service::{AppState, BatchSnapshot, JobSnapshot},
@@ -31,6 +31,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ui/batches/bulk-cancel", post(bulk_cancel))
         .route("/ui/batches/bulk-rerun", post(bulk_rerun))
         .route("/ui/batches/bulk-export", post(bulk_export))
+        .route("/ui/estimates", post(create_quick_estimate))
         .route("/ui/import", post(import_parameter_set))
         .route("/ui/parameter-sets/{parameter_set_id}", get(parameter_set))
         .route(
@@ -129,7 +130,7 @@ impl From<BatchSnapshot> for UiBatch {
                     .filter_map(|entry| entry.summary.security_bits.as_ref())
                     .min_by(|left, right| left.as_big_decimal().cmp(&right.as_big_decimal()))
             })
-            .map(ToString::to_string)
+            .map(format_security_bits)
             .unwrap_or_else(|| "—".to_owned());
         Self {
             id: value.batch_id,
@@ -174,6 +175,7 @@ struct UiAttack {
     name: String,
     outcome: String,
     security: String,
+    detail: String,
     cached: bool,
 }
 
@@ -285,7 +287,7 @@ async fn batch_detail(
                         .summary
                         .security_bits
                         .as_ref()
-                        .map(ToString::to_string)
+                        .map(format_security_bits)
                         .unwrap_or_else(|| "—".to_owned()),
                     complete: entry.summary.complete,
                     fast_estimate: entry.summary.fast_estimate,
@@ -299,6 +301,7 @@ async fn batch_detail(
                                 .unwrap_or_else(|| "unknown".to_owned()),
                             outcome: outcome_name(&result.outcome).to_owned(),
                             security: outcome_security(&result.outcome),
+                            detail: outcome_detail(&result.outcome),
                             cached: result.cached,
                         })
                         .collect(),
@@ -354,6 +357,50 @@ struct ImportForm {
     high_security_bits: String,
 }
 
+#[derive(Deserialize)]
+struct QuickEstimateForm {
+    cases_json: String,
+    mode: String,
+    #[serde(default = "default_timeout")]
+    timeout_seconds: u64,
+    #[serde(default = "default_decision")]
+    decision_after_seconds: u64,
+    #[serde(default = "default_threshold")]
+    high_security_bits: String,
+}
+
+async fn create_quick_estimate(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Form(form): Form<QuickEstimateForm>,
+) -> Result<Response, ServiceError> {
+    let cases: Vec<ParameterCase> = serde_json::from_str(&form.cases_json).map_err(|error| {
+        ServiceError::BadRequest(format!("invalid quick-estimate cases: {error}"))
+    })?;
+    let mode = match form.mode.as_str() {
+        "rough" => EstimateMode::Rough,
+        "normal" => EstimateMode::Normal,
+        _ => return Err(ServiceError::BadRequest("unknown estimate mode".to_owned())),
+    };
+    let request = estimate_from_cases(
+        cases,
+        mode,
+        form.timeout_seconds,
+        form.decision_after_seconds,
+        &form.high_security_bits,
+    )?;
+    let (fully_cached, _) = state
+        .scheduler
+        .submit(request, state.poll_after_seconds)
+        .await?;
+    let location = if fully_cached {
+        "/?message=Security+estimate+completed+from+cache"
+    } else {
+        "/?message=Security+estimate+queued"
+    };
+    redirect(&headers, location)
+}
+
 async fn import_parameter_set(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -372,6 +419,7 @@ async fn import_parameter_set(
     if form.run_all.is_some() {
         let request = estimate_from_cases(
             parameter_set.cases,
+            EstimateMode::Normal,
             form.timeout_seconds,
             form.decision_after_seconds,
             &form.high_security_bits,
@@ -423,6 +471,7 @@ async fn run_parameter_set(
     }
     let request = estimate_from_cases(
         cases,
+        EstimateMode::Normal,
         form.timeout_seconds,
         form.decision_after_seconds,
         &form.high_security_bits,
@@ -576,6 +625,7 @@ async fn create_sweep(
             .submit_staged(
                 EstimateRequest {
                     cases: chunk.to_vec(),
+                    mode: crate::EstimateMode::Normal,
                     timeout_seconds: request.timeout_seconds,
                     slow_attack_policy: request.slow_attack_policy.clone(),
                 },
@@ -634,10 +684,9 @@ fn asset(content_type: &'static str, body: &'static str) -> Response {
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=86400"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     response
 }
 
@@ -664,18 +713,24 @@ fn redirect(headers: &HeaderMap, location: &'static str) -> Result<Response, Ser
 
 fn estimate_from_cases(
     cases: Vec<ParameterCase>,
+    mode: EstimateMode,
     timeout_seconds: u64,
     decision_after_seconds: u64,
     high_security_bits: &str,
 ) -> Result<EstimateRequest, ServiceError> {
     let request = EstimateRequest {
         cases,
+        mode,
         timeout_seconds,
-        slow_attack_policy: Some(SlowAttackPolicy {
-            decision_after_seconds,
-            high_security_bits: ExactDecimal::new(high_security_bits)
-                .map_err(ServiceError::BadRequest)?,
-        }),
+        slow_attack_policy: if mode == EstimateMode::Normal {
+            Some(SlowAttackPolicy {
+                decision_after_seconds,
+                high_security_bits: ExactDecimal::new(high_security_bits)
+                    .map_err(ServiceError::BadRequest)?,
+            })
+        } else {
+            None
+        },
     };
     request.validate()?;
     Ok(request)
@@ -712,9 +767,31 @@ fn outcome_name(outcome: &AttackOutcome) -> &'static str {
 
 fn outcome_security(outcome: &AttackOutcome) -> String {
     match outcome {
-        AttackOutcome::Computed { security_bits, .. } => security_bits.to_string(),
+        AttackOutcome::Computed { security_bits, .. } => format_security_bits(security_bits),
         _ => "—".to_owned(),
     }
+}
+
+fn outcome_detail(outcome: &AttackOutcome) -> String {
+    match outcome {
+        AttackOutcome::Computed { .. } => "computed".to_owned(),
+        AttackOutcome::Timeout { timeout_seconds } => {
+            format!("timeout after {timeout_seconds}s")
+        }
+        AttackOutcome::Unsupported { code, reason } => {
+            format!("unsupported · {code}: {reason}")
+        }
+        AttackOutcome::Failed {
+            code,
+            message,
+            retryable,
+        } => format!("failed · {code}: {message} · retryable={retryable}"),
+        AttackOutcome::Skipped { reason } => format!("skipped · {reason}"),
+    }
+}
+
+fn format_security_bits(value: &ExactDecimal) -> String {
+    value.as_big_decimal().round(2).normalized().to_string()
 }
 
 const fn default_timeout() -> u64 {
@@ -727,4 +804,34 @@ const fn default_decision() -> u64 {
 
 fn default_threshold() -> String {
     "128".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_security_bits, outcome_detail};
+    use crate::{AttackOutcome, ExactDecimal};
+
+    #[test]
+    fn security_bits_are_rounded_only_for_ui_display() {
+        assert_eq!(
+            format_security_bits(&ExactDecimal::new("214.105577393628").unwrap()),
+            "214.11"
+        );
+        assert_eq!(
+            format_security_bits(&ExactDecimal::new("128.0001").unwrap()),
+            "128"
+        );
+    }
+
+    #[test]
+    fn unsupported_reason_is_visible_in_ui_detail() {
+        let detail = outcome_detail(&AttackOutcome::Unsupported {
+            code: "no_finite_rop".to_owned(),
+            reason: "dual_hybrid returned no finite positive rop".to_owned(),
+        });
+        assert_eq!(
+            detail,
+            "unsupported · no_finite_rop: dual_hybrid returned no finite positive rop"
+        );
+    }
 }

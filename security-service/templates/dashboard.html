@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice Security</title>
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/app.css?v=2">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
-  <script defer src="/assets/app.js"></script>
+  <script defer src="/assets/app.js?v=2"></script>
 </head>
 <body>
   <header class="topbar">
@@ -51,6 +51,119 @@
         </form>
       </article>
     </section>
+
+    <section class="panel section-panel" id="quick-estimate">
+      <div class="section-heading">
+        <div><p class="eyebrow">QUICK ESTIMATE</p><h2>安全估算</h2></div>
+        <span>最多 500 组参数</span>
+      </div>
+      <p class="muted">直接填写参数并一次提交多组 case。粗略测试只运行快速攻击；正常测试复用已有快速结果，再执行完整攻击集。</p>
+      <form method="post" action="/ui/estimates" class="stack" data-quick-estimate-form>
+        <div class="form-row estimate-policy">
+          <label>测试方式
+            <select name="mode">
+              <option value="rough">rough · 仅快速攻击</option>
+              <option value="normal" selected>normal · 完整攻击集</option>
+            </select>
+          </label>
+          <label>总超时（秒）<input name="timeout_seconds" type="number" min="2" max="7200" value="3600" required></label>
+          <label>慢攻击判断（秒）<input name="decision_after_seconds" type="number" min="1" max="7199" value="60" required></label>
+          <label>高安全阈值（bit）<input name="high_security_bits" value="128" inputmode="decimal" required></label>
+        </div>
+        <div class="quick-case-list" data-quick-case-list></div>
+        <input type="hidden" name="cases_json" data-quick-cases-json>
+        <div class="quick-actions">
+          <button type="button" data-add-quick-case>＋ 添加一组参数</button>
+          <button class="primary" type="submit">开始安全估算</button>
+        </div>
+      </form>
+    </section>
+
+    <template id="quick-case-template">
+      <article class="quick-case" data-quick-case>
+        <div class="quick-case-heading">
+          <div><span class="case-number" data-case-number></span><strong data-case-title>参数</strong></div>
+          <button type="button" class="danger-button" data-remove-quick-case>移除</button>
+        </div>
+
+        <div class="quick-grid identity-grid">
+          <label>Case ID<input data-field="id" pattern="[A-Za-z0-9._-]+" maxlength="128" required></label>
+          <label>名称<input data-field="name" required></label>
+          <label>问题类型
+            <select data-field="problem_kind">
+              <option value="lwe">LWE</option>
+              <option value="rlwe">RLWE</option>
+              <option value="glwe">GLWE</option>
+              <option value="ntru">NTRU</option>
+              <option value="sis">SIS</option>
+            </select>
+          </label>
+          <label>安全模型
+            <select data-field="security_model"><option value="classical">classical</option><option value="quantum">quantum</option></select>
+          </label>
+        </div>
+
+        <div class="quick-grid">
+          <label data-problems="lwe ntru sis">维数 n<input data-field="dimension" type="number" min="1" step="1" value="1024" required></label>
+          <label data-problems="rlwe glwe">环次数 N<input data-field="ring_degree" type="number" min="1" step="1" value="1024" required></label>
+          <label data-problems="glwe">GLWE 维数 k<input data-field="glwe_dimension" type="number" min="1" step="1" value="1" required></label>
+          <label data-problems="lwe rlwe glwe ntru sis">模数 q<input data-field="modulus" inputmode="numeric" pattern="[0-9]+" value="65536" required></label>
+          <label data-problems="lwe rlwe glwe">样本
+            <select data-field="samples_kind"><option value="unlimited">unlimited</option><option value="finite">finite</option></select>
+          </label>
+          <label data-samples="finite">样本数 m<input data-field="sample_count" type="number" min="1" step="1" value="1024" required></label>
+          <label data-problems="ntru">NTRU 结构<select data-field="ntru_structure"><option value="matrix">matrix</option><option value="circulant">circulant</option></select></label>
+          <label data-problems="sis">列数 m<input data-field="columns" type="number" min="1" step="1" value="2048" required></label>
+          <label data-problems="sis">长度界<input data-field="length_bound" value="1024" inputmode="decimal" required></label>
+          <label data-problems="sis">范数<select data-field="norm"><option value="l2">L2</option><option value="l_infinity">L∞</option></select></label>
+        </div>
+
+        <div class="distribution-grid" data-problems="lwe rlwe glwe ntru">
+          <fieldset>
+            <legend>私钥分布</legend>
+            <label>类型
+              <select data-field="secret_kind">
+                <option value="uniform_binary">uniform binary</option>
+                <option value="uniform_ternary">uniform ternary</option>
+                <option value="fixed_weight_binary">fixed-weight binary</option>
+                <option value="fixed_weight_ternary">fixed-weight ternary</option>
+                <option value="discrete_gaussian">discrete Gaussian</option>
+                <option value="centered_binomial">centered binomial</option>
+                <option value="uniform_integer">bounded integer</option>
+              </select>
+            </label>
+            <label data-secret="fixed_weight_binary">Hamming weight<input data-field="secret_hamming_weight" type="number" min="0" step="1" value="64" required></label>
+            <div class="quick-grid" data-secret="fixed_weight_ternary">
+              <label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label>
+              <label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label>
+            </div>
+            <label data-secret="discrete_gaussian">标准差 σ<input data-field="secret_standard_deviation" value="3.2" inputmode="decimal" required></label>
+            <label data-secret="centered_binomial">η<input data-field="secret_eta" type="number" min="1" step="1" value="3" required></label>
+            <div class="quick-grid" data-secret="uniform_integer">
+              <label>下界<input data-field="secret_lower" value="-1" inputmode="numeric" required></label>
+              <label>上界<input data-field="secret_upper" value="1" inputmode="numeric" required></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>噪声分布</legend>
+            <label>类型
+              <select data-field="error_kind">
+                <option value="discrete_gaussian">discrete Gaussian</option>
+                <option value="centered_binomial">centered binomial</option>
+                <option value="uniform_integer">bounded integer</option>
+              </select>
+            </label>
+            <label data-error="discrete_gaussian">标准差 σ<input data-field="error_standard_deviation" value="3.2" inputmode="decimal" required></label>
+            <label data-error="centered_binomial">η<input data-field="error_eta" type="number" min="1" step="1" value="3" required></label>
+            <div class="quick-grid" data-error="uniform_integer">
+              <label>下界<input data-field="error_lower" value="-1" inputmode="numeric" required></label>
+              <label>上界<input data-field="error_upper" value="1" inputmode="numeric" required></label>
+            </div>
+          </fieldset>
+        </div>
+      </article>
+    </template>
 
     <section class="panel section-panel">
       <div class="section-heading"><div><p class="eyebrow">PARAMETER SETS</p><h2>方案库</h2></div><span>{{ parameter_sets.len() }} sets</span></div>

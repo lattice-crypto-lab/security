@@ -3,10 +3,10 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::{
-    AnalysisModel, Attack, AttackCacheIdentity, AttackOutcome, AttackResult, EstimateRequest,
-    EstimatorProblem, ExactDecimal, ParameterCase, Provenance, SecurityReportEntry,
-    SecurityReportFile, SecuritySummary, Validate, analysis_model_for, attacks_for_problem,
-    canonical_json,
+    AnalysisModel, Attack, AttackCacheIdentity, AttackOutcome, AttackResult, EstimateMode,
+    EstimateRequest, EstimatorProblem, ExactDecimal, ParameterCase, Provenance,
+    SecurityReportEntry, SecurityReportFile, SecuritySummary, Validate, analysis_model_for,
+    attacks_for_problem, canonical_json,
     database::{Database, JobWork},
     error::ServiceError,
     fast_attacks_for_problem,
@@ -204,7 +204,11 @@ impl Runner {
     async fn fully_cached(&self, request: &EstimateRequest) -> Result<bool, ServiceError> {
         for case in &request.cases {
             let context = self.case_context(case)?;
-            for attack in attacks_for_problem(&case.problem) {
+            let requested = match request.mode {
+                EstimateMode::Rough => fast_attacks_for_problem(&case.problem),
+                EstimateMode::Normal => attacks_for_problem(&case.problem),
+            };
+            for attack in requested {
                 let key = context.cache_identity(*attack).hash();
                 if self.database.cached_outcome(&key).await?.is_none() {
                     return Ok(false);
@@ -277,6 +281,35 @@ impl Runner {
                     .get(attack)
                     .is_some_and(|result| matches!(result.outcome, AttackOutcome::Computed { .. }))
             });
+
+        if work.request.mode == EstimateMode::Rough {
+            let missing_slow = slow_attacks_for_problem(&work.case.problem)
+                .iter()
+                .copied()
+                .filter(|attack| !results.contains_key(attack))
+                .collect::<Vec<_>>();
+            let fast_estimate = !missing_slow.is_empty();
+            for attack in missing_slow {
+                results.insert(
+                    attack,
+                    AttackResult {
+                        attack,
+                        cached: false,
+                        outcome: AttackOutcome::Skipped {
+                            reason: "rough mode runs fast attacks only".to_owned(),
+                        },
+                    },
+                );
+            }
+            let entry = self.report_entry(work, &context, results, fast_estimate);
+            let state = if entry.summary.complete {
+                RunState::Completed { finished_at: now() }
+            } else {
+                RunState::Partial { finished_at: now() }
+            };
+            return Ok((state, Some(entry)));
+        }
+
         let high_security = work
             .request
             .slow_attack_policy

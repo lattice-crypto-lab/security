@@ -11,7 +11,7 @@ use crate::{
         AnalysisSettings, AttackOutcome, ErrorDistribution, Problem, SampleCount,
         SecretDistribution, attacks_for_problem, slow_attacks_for_problem,
     },
-    formats::{EstimateRequest, ParameterCase, ParameterSetFile, SecurityReportFile},
+    formats::{EstimateMode, EstimateRequest, ParameterCase, ParameterSetFile, SecurityReportFile},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Error)]
@@ -166,10 +166,11 @@ impl Validate for EstimateRequest {
                 "timeout must be in 1..=7200 seconds",
             ));
         }
-        let needs_slow_policy = self
-            .cases
-            .iter()
-            .any(|case| !slow_attacks_for_problem(&case.problem).is_empty());
+        let needs_slow_policy = self.mode == EstimateMode::Normal
+            && self
+                .cases
+                .iter()
+                .any(|case| !slow_attacks_for_problem(&case.problem).is_empty());
         if needs_slow_policy && self.slow_attack_policy.is_none() {
             return Err(ValidationError::new(
                 "slow_attack_policy",

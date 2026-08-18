@@ -111,6 +111,8 @@ pub struct SecurityReportFile {
 pub struct EstimateRequest {
     #[schemars(length(min = 1, max = 500))]
     pub cases: Vec<ParameterCase>,
+    #[serde(default)]
+    pub mode: EstimateMode,
     #[serde(default = "default_timeout_seconds")]
     #[schemars(range(min = 1, max = 7200))]
     pub timeout_seconds: u64,
@@ -118,7 +120,15 @@ pub struct EstimateRequest {
     pub slow_attack_policy: Option<SlowAttackPolicy>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimateMode {
+    Rough,
+    #[default]
+    Normal,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SlowAttackPolicy {
     #[schemars(range(min = 1, max = 7200))]

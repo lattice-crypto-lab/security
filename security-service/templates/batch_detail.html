@@ -9,7 +9,7 @@
     <summary><span><strong>{{ report.case_name }}</strong><small class="mono">{{ report.case_id }}</small></span><span>{{ report.security }} bit{% if report.fast_estimate %} · fast estimate{% endif %}{% if report.complete %} · complete{% endif %}</span></summary>
     <div class="attack-grid">
     {% for attack in report.attacks %}
-      <div class="attack"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small>{{ attack.outcome }}{% if attack.cached %} · cached{% endif %}</small></div>
+      <div class="attack attack-{{ attack.outcome }}" style="min-width:0"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small title="{{ attack.detail }}" style="overflow-wrap:anywhere;white-space:normal">{{ attack.detail }}{% if attack.cached %} · cached{% endif %}</small></div>
     {% endfor %}
     </div>
   </details>

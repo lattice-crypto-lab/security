@@ -15,6 +15,11 @@ runnable cases. Cases can be evaluated together, selected, or one at a time.
 Computed attack results are cached by normalized parameters, analysis model,
 attack, and exact estimator environment.
 
+The Web UI also has a direct security-estimation form for entering one or more
+LWE, RLWE, GLWE, NTRU, or SIS cases without first creating an import file.
+`rough` runs only the fast attack set; `normal` additionally runs adaptive
+`arora_gb` and `bkw`. Both modes use the same per-attack cache.
+
 For LWE-derived problems the service exposes all eight estimator attacks. Six
 fast attacks run normally. `arora_gb` and `bkw` are adaptive: after a configured
 decision time, the service cancels unfinished slow work when the minimum fast
@@ -38,11 +43,18 @@ cargo test --locked --manifest-path security-service/Cargo.toml
 cargo clippy --locked --manifest-path security-service/Cargo.toml --all-targets -- -D warnings
 ```
 
-Release tags publish both `linux/amd64` images to GHCR. On Debian, deploy an
-exact release with:
+Release tags compare image inputs with the previous release tag and publish
+only changed `linux/amd64` images to GHCR. The two image versions are therefore
+independent. Stable releases also update each image's `latest` alias; an
+unchanged image is retagged without being rebuilt. Pre-release tags do not move
+`latest`.
+
+Compose uses `latest` by default. For a reproducible Debian deployment, pin
+exact versions with:
 
 ```bash
-export LATTICE_SECURITY_VERSION=0.1.0
+export SECURITY_SERVICE_VERSION=0.1.1
+export ESTIMATOR_API_VERSION=0.1.0
 docker compose pull
 docker compose up -d
 ```

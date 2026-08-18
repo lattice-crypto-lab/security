@@ -75,6 +75,7 @@ pub fn expand(request: &SweepRequest) -> Result<Vec<ParameterCase>, ServiceError
     }
     let probe = EstimateRequest {
         cases: vec![cases[0].clone()],
+        mode: crate::EstimateMode::Normal,
         timeout_seconds: request.timeout_seconds,
         slow_attack_policy: request.slow_attack_policy.clone(),
     };

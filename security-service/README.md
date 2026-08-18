@@ -31,9 +31,17 @@ attack, and calls the internal estimator adapter.
 ## Web UI
 
 `GET /` serves the Askama/HTMX workbench. It supports parameter-set import,
-case selection, batch filtering/sorting, attack details, polling, bulk
-cancel/rerun/export, and one-axis sweep creation. The JSON sweep API supports
-up to four Cartesian axes and 10,000 generated cases.
+case selection, direct multi-case parameter entry, batch filtering/sorting,
+attack details, polling, bulk cancel/rerun/export, and one-axis sweep creation.
+The JSON sweep API supports up to four Cartesian axes and 10,000 generated
+cases.
+
+The direct form has two execution modes. `rough` runs the fast attack set and
+records missing slow attacks as policy-skipped; `normal` also schedules
+`arora_gb` and `bkw` under the adaptive slow-attack policy. A later normal run
+reuses fast results produced by a rough run. Submitting identical work creates
+separate batch records, while completed-cache lookup and scheduler
+single-flight prevent duplicate estimator execution.
 
 HTMX 2.0.10 is version-pinned with SRI. The UI is server-rendered; imported
 sets and active batches are reconstructed from SQLite after reload or

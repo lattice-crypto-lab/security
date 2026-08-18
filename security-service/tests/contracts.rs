@@ -249,6 +249,7 @@ fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
     .unwrap();
     let mut request = EstimateRequest {
         cases: parameter_set.cases,
+        mode: lattice_security::EstimateMode::Normal,
         timeout_seconds: 600,
         slow_attack_policy: None,
     };
@@ -258,6 +259,10 @@ fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
         decision_after_seconds: 60,
         high_security_bits: decimal("128"),
     });
+    request.validate().unwrap();
+
+    request.mode = lattice_security::EstimateMode::Rough;
+    request.slow_attack_policy = None;
     request.validate().unwrap();
 
     let example: EstimateRequest = serde_json::from_str(

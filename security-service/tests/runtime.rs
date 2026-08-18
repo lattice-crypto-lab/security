@@ -14,8 +14,8 @@ use axum::{
     routing::{get, post},
 };
 use lattice_security::{
-    EstimateRequest, ExactDecimal, ParameterSetFile, SlowAttackPolicy, SweepAxis, SweepRequest,
-    api,
+    EstimateMode, EstimateRequest, ExactDecimal, ParameterSetFile, SlowAttackPolicy, SweepAxis,
+    SweepRequest, api,
     database::Database,
     service::{AppConfig, AppState},
     sweep,
@@ -106,6 +106,40 @@ async fn high_fast_estimate_cuts_off_slow_attacks_without_caching_them() {
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::ACCEPTED);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
+    let harness = harness(Duration::ZERO, "96").await;
+    let mut rough = estimate_request("128");
+    rough.mode = EstimateMode::Rough;
+    rough.slow_attack_policy = None;
+
+    let first = json_request(&harness.app, "POST", "/v1/estimates", &rough).await;
+    assert_eq!(first.0, StatusCode::ACCEPTED);
+    let batch_id = first.1["batch_id"].as_str().unwrap();
+    let partial = wait_for_terminal(&harness.app, batch_id).await;
+    assert_eq!(partial["state"]["kind"], "partial");
+    assert_eq!(
+        partial["report"]["reports"][0]["summary"]["fast_estimate"],
+        true
+    );
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+
+    let cached_rough = json_request(&harness.app, "POST", "/v1/estimates", &rough).await;
+    assert_eq!(cached_rough.0, StatusCode::OK);
+    assert_eq!(cached_rough.1["state"]["kind"], "partial");
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+
+    let normal = estimate_request("128");
+    let submitted = json_request(&harness.app, "POST", "/v1/estimates", &normal).await;
+    assert_eq!(submitted.0, StatusCode::ACCEPTED);
+    let normal_batch_id = submitted.1["batch_id"].as_str().unwrap();
+    assert_eq!(
+        wait_for_terminal(&harness.app, normal_batch_id).await["state"]["kind"],
+        "completed"
+    );
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -337,6 +371,8 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
     assert!(dashboard.1.contains("Demo scheme"));
     assert!(dashboard.1.contains("htmx.org@2.0.10"));
     assert!(dashboard.1.contains("hx-get=\"/ui/batches\""));
+    assert!(dashboard.1.contains("action=\"/ui/estimates\""));
+    assert!(dashboard.1.contains("data-add-quick-case"));
 
     let detail = text_request(&harness.app, "GET", "/ui/parameter-sets/demo-scheme", None).await;
     assert_eq!(detail.0, StatusCode::OK);
@@ -364,6 +400,38 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
             .len(),
         1
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quick_estimate_form_accepts_multiple_cases_in_rough_mode() {
+    let harness = harness(Duration::ZERO, "96").await;
+    let mut first = estimate_request("128").cases.remove(0);
+    first.id = "quick-a".to_owned();
+    first.name = "Quick A".to_owned();
+    let mut second = first.clone();
+    second.id = "quick-b".to_owned();
+    second.name = "Quick B".to_owned();
+    if let lattice_security::Problem::Lwe(problem) = &mut second.problem {
+        problem.dimension = 512;
+    }
+    let cases_json = serde_json::to_string(&vec![first, second]).unwrap();
+    let body = format!(
+        "cases_json={cases_json}&mode=rough&timeout_seconds=10&decision_after_seconds=1&high_security_bits=128"
+    );
+    let submitted = text_request(&harness.app, "POST", "/ui/estimates", Some(&body)).await;
+    assert_eq!(submitted.0, StatusCode::SEE_OTHER);
+
+    let batches = harness.state.database.list_batches(10, 0).await.unwrap();
+    assert_eq!(batches.len(), 1);
+    let request = harness
+        .state
+        .database
+        .batch_request(&batches[0].batch_id)
+        .await
+        .unwrap();
+    assert_eq!(request.mode, EstimateMode::Rough);
+    assert_eq!(request.cases.len(), 2);
+    assert!(request.slow_attack_policy.is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -420,6 +488,7 @@ async fn sweep_api_expands_cartesian_axes_and_stages_beyond_queue_capacity() {
             database
                 .create_staged_batch(EstimateRequest {
                     cases,
+                    mode: lattice_security::EstimateMode::Normal,
                     timeout_seconds: template.timeout_seconds,
                     slow_attack_policy: template.slow_attack_policy.clone(),
                 })

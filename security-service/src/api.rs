@@ -117,6 +117,7 @@ async fn sweep(
     for chunk in cases.chunks(500) {
         let estimate = EstimateRequest {
             cases: chunk.to_vec(),
+            mode: crate::EstimateMode::Normal,
             timeout_seconds: request.timeout_seconds,
             slow_attack_policy: request.slow_attack_policy.clone(),
         };

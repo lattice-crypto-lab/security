@@ -11,6 +11,10 @@
       "maxItems": 500,
       "minItems": 1
     },
+    "mode": {
+      "$ref": "#/$defs/EstimateMode",
+      "default": "normal"
+    },
     "slow_attack_policy": {
       "anyOf": [
         {
@@ -135,6 +139,13 @@
             "upper"
           ]
         }
+      ]
+    },
+    "EstimateMode": {
+      "type": "string",
+      "enum": [
+        "rough",
+        "normal"
       ]
     },
     "ExactDecimal": {

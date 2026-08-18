@@ -7,6 +7,8 @@ browser reload and disconnect recovery do not depend on client-side state.
 
 The workbench supports:
 
+- direct entry of one or more LWE, RLWE, GLWE, NTRU, or SIS cases in a single
+  batch, with `rough` and `normal` execution modes;
 - parameter-set JSON import with reject/replace and optional immediate run;
 - selecting one, several, or all cases in a parameter set;
 - batch ID/state filters and update/security sorting;
@@ -15,6 +17,11 @@ The workbench supports:
 - bulk cancel, rerun, and report-bundle export;
 - one-axis sweep forms for dimension, modulus, Gaussian error standard
   deviation, and finite sample count.
+
+`rough` executes only the fast attacks. `normal` adds adaptive `arora_gb` and
+`bkw` execution. Both modes share the per-attack cache, and concurrent
+identical attack keys are joined through scheduler single-flight even though
+each submission keeps its own batch identity.
 
 The public `POST /v1/sweeps` contract supports up to four Cartesian axes and
 10,000 generated cases. Generated cases are split into batches of 500. At most
