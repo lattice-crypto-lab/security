@@ -17,8 +17,9 @@ JSON schemas in `schemas`.
   reachable only on the Compose network.
 
 No compatibility with historical profiles, notebook results, Parquet caches,
-or legacy report formats is provided. Original source and notebooks remain
-untouched as research archives.
+or legacy report formats is provided. After parameter migration was verified,
+the superseded root scripts, notebooks, and `lwe_security` package were
+removed; the migrated JSON parameter sets are the maintained source.
 
 ## Problems and analysis
 
@@ -43,18 +44,19 @@ warning. The mapping uses checked arithmetic.
 - Standard NTRU: `usvp`, `dsd`, `bdd`, `bdd_hybrid`, `bdd_mitm_hybrid`.
 - SIS: `lattice`.
 
-`arora_gb` and `bkw` remain public attacks and run in separate estimator plans.
-Each LWE-derived run supplies `decision_after_seconds`,
-`required_security_bits`, and `stop_margin_bits`. The timer applies separately
-to each slow attack. At its decision time, an unfinished attack is cancelled
-only when its calibrated conservative approximation is available and is at
-least `required_security_bits + stop_margin_bits`; otherwise it continues until
-completion or the overall timeout. A computed result that finishes before the
-decision is retained and cached normally.
+`arora_gb` and `bkw` remain public attacks and use a versioned three-level
+applicability decision. Clearly inapplicable inputs produce a
+`policy_skipped` outcome. Clearly applicable inputs run in separate estimator
+plans. Borderline inputs consult a calibrated conservative approximation; if
+it is at least `required_security_bits + stop_margin_bits`, the approximation
+is returned and the Sage attack process is never created. Missing or lower
+borderline predictions cause the real attack to run until completion or the
+overall timeout.
 
-Outcomes include `computed`, calibrated `approximate`, `timeout`, `unsupported`,
-`failed`, and policy `skipped`.
-A complete report means every attack in the fixed set has a computed result.
+Outcomes include `computed`, `no_finite_estimate`, calibrated `approximate`,
+`timeout`, `unsupported`, `failed`, `policy_skipped`, and rough-mode `skipped`.
+A complete normal report means every attack in the fixed set has a computed,
+no-finite, or reviewed policy-excluded result.
 The case security level is the minimum computed security-bit value and records
 the corresponding attack.
 
@@ -90,5 +92,5 @@ reduction.
 - Worker concurrency one, default timeout 3,600 seconds, maximum 7,200 seconds,
   cleanup grace 15 seconds.
 - SQLite path `/var/lib/lattice-security/lattice-security.db`.
-- No approximation models, sweeps, SSE/WebSocket, PostgreSQL, multi-instance,
-  ARM64, external legacy converter, or Primus repository changes.
+- No SSE/WebSocket, PostgreSQL, multi-instance, ARM64, external legacy
+  converter, or Primus repository changes.

@@ -28,6 +28,7 @@ from .models import (
     FixedWeightTernary,
     IntegerMetric,
     LweProblem,
+    NoFiniteEstimateOutcome,
     NormalizedMetric,
     NtruProblem,
     ResultRole,
@@ -38,7 +39,6 @@ from .models import (
     UniformBinary,
     UniformInteger,
     UniformTernary,
-    UnsupportedOutcome,
     WorkerResponse,
 )
 from .planner import resolve_plan
@@ -235,8 +235,8 @@ def _normalize_attack(
         return AttackExecution(
             attack=attack,
             role=role,
-            outcome=UnsupportedOutcome(
-                kind="unsupported",
+            outcome=NoFiniteEstimateOutcome(
+                kind="no_finite_estimate",
                 code="no_finite_rop",
                 reason=f"{attack.value} returned no finite positive rop",
                 raw_result={"result": _safe_text(raw), **audit},

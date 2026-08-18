@@ -623,12 +623,6 @@
     "SlowAttackPolicy": {
       "type": "object",
       "properties": {
-        "decision_after_seconds": {
-          "type": "integer",
-          "format": "uint64",
-          "maximum": 7200,
-          "minimum": 1
-        },
         "required_security_bits": {
           "$ref": "#/$defs/ExactDecimal"
         },
@@ -638,7 +632,6 @@
       },
       "additionalProperties": false,
       "required": [
-        "decision_after_seconds",
         "required_security_bits",
         "stop_margin_bits"
       ]

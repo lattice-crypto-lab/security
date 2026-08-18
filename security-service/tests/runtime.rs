@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     sync::{
         Arc, Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
@@ -30,6 +31,7 @@ struct MockState {
     plans: Arc<StdMutex<Vec<Vec<String>>>>,
     slow_delay: Duration,
     security_bits: &'static str,
+    no_finite_attacks: Arc<StdMutex<HashSet<String>>>,
 }
 
 struct Harness {
@@ -37,6 +39,7 @@ struct Harness {
     state: Arc<AppState>,
     calls: Arc<AtomicUsize>,
     plans: Arc<StdMutex<Vec<Vec<String>>>>,
+    no_finite_attacks: Arc<StdMutex<HashSet<String>>>,
     _directory: TempDir,
     worker: tokio::task::JoinHandle<()>,
 }
@@ -61,12 +64,19 @@ async fn estimate_is_accepted_then_fully_cached_and_supports_etag() {
         completed["report"]["reports"][0]["summary"]["complete"],
         true
     );
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    let policy_skipped = completed["report"]["reports"][0]["attacks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|result| result["outcome"]["kind"] == "policy_skipped")
+        .count();
+    assert_eq!(policy_skipped, 2);
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
     assert_eq!(second.1["state"]["kind"], "completed");
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
 
     let revision = completed["revision"].as_u64().unwrap();
     let response = harness
@@ -82,6 +92,92 @@ async fn estimate_is_accepted_then_fully_cached_and_supports_etag() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_finite_estimator_results_are_complete_and_cached() {
+    let harness = harness(Duration::ZERO, "96").await;
+    harness
+        .no_finite_attacks
+        .lock()
+        .unwrap()
+        .insert("dual_hybrid".to_owned());
+    let request = estimate_request("256");
+
+    let first = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    assert_eq!(first.0, StatusCode::ACCEPTED);
+    let batch_id = first.1["batch_id"].as_str().unwrap();
+    let completed = wait_for_terminal(&harness.app, batch_id).await;
+    assert_eq!(completed["state"]["kind"], "completed");
+    assert_eq!(
+        completed["report"]["reports"][0]["summary"]["complete"],
+        true
+    );
+    let dual_hybrid = completed["report"]["reports"][0]["attacks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|result| result["attack"] == "dual_hybrid")
+        .unwrap();
+    assert_eq!(dual_hybrid["outcome"]["kind"], "no_finite_estimate");
+    assert_eq!(
+        dual_hybrid["outcome"]["raw_result"]["result"],
+        "rop: +Infinity"
+    );
+    let detail = text_request(
+        &harness.app,
+        "GET",
+        &format!("/ui/batches/{batch_id}/detail"),
+        None,
+    )
+    .await;
+    assert!(detail.1.contains("∞"));
+    assert!(detail.1.contains("no finite estimate"));
+    assert!(detail.1.contains("estimator details"));
+    assert!(detail.1.contains("rop: +Infinity"));
+    let calls = harness.calls.load(Ordering::SeqCst);
+
+    let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), calls);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn calibrated_slow_approximation_consistently_replaces_cached_no_finite_results() {
+    let harness = harness_with_model(Duration::ZERO, "96", approximation_model()).await;
+    harness
+        .no_finite_attacks
+        .lock()
+        .unwrap()
+        .extend(["arora_gb".to_owned(), "bkw".to_owned()]);
+    let request = borderline_request("256");
+
+    let first = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    let batch_id = first.1["batch_id"].as_str().unwrap();
+    let completed = wait_for_terminal(&harness.app, batch_id).await;
+    assert_eq!(completed["state"]["kind"], "partial");
+    assert_eq!(
+        completed["report"]["reports"][0]["summary"]["approximate"],
+        true
+    );
+    assert_eq!(
+        completed["report"]["reports"][0]["attacks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|result| result["outcome"]["kind"] == "approximate")
+            .count(),
+        2
+    );
+    let calls = harness.calls.load(Ordering::SeqCst);
+
+    let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(
+        second.1["report"]["reports"][0]["summary"]["approximate"],
+        true
+    );
+    assert_eq!(harness.calls.load(Ordering::SeqCst), calls);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -138,7 +234,7 @@ async fn terminal_batches_can_be_deleted_without_evicting_attack_cache() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unfinished_batch_deletion_is_rejected() {
     let harness = harness(Duration::from_secs(1), "96").await;
-    let request = estimate_request("256");
+    let request = applicable_request("256");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     let batch_id = submitted.1["batch_id"].as_str().unwrap();
 
@@ -154,7 +250,7 @@ async fn unfinished_batch_deletion_is_rejected() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn fast_results_do_not_cutoff_slow_attacks_without_a_calibrated_approximation() {
+async fn deterministic_applicability_skips_irrelevant_slow_attacks_without_a_model() {
     let harness = harness(Duration::from_millis(50), "192").await;
     let request = estimate_request("128");
 
@@ -172,9 +268,10 @@ async fn fast_results_do_not_cutoff_slow_attacks_without_a_calibrated_approximat
             .iter()
             .find(|result| result["attack"] == attack)
             .unwrap();
-        assert_eq!(result["outcome"]["kind"], "computed");
+        assert_eq!(result["outcome"]["kind"], "policy_skipped");
+        assert_eq!(result["outcome"]["applicability_rule_version"], 1);
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(second.0, StatusCode::OK);
@@ -183,7 +280,7 @@ async fn fast_results_do_not_cutoff_slow_attacks_without_a_calibrated_approximat
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
     let harness = harness(Duration::ZERO, "96").await;
-    let mut rough = estimate_request("128");
+    let mut rough = applicable_request("128");
     rough.mode = EstimateMode::Rough;
     rough.slow_attack_policy = None;
 
@@ -203,7 +300,7 @@ async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
     assert_eq!(cached_rough.1["state"]["kind"], "partial");
     assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
 
-    let normal = estimate_request("128");
+    let normal = applicable_request("128");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &normal).await;
     assert_eq!(submitted.0, StatusCode::ACCEPTED);
     let normal_batch_id = submitted.1["batch_id"].as_str().unwrap();
@@ -217,7 +314,7 @@ async fn rough_mode_uses_fast_cache_and_normal_mode_only_adds_slow_work() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rough_mode_uses_and_caches_calibrated_slow_attack_approximations() {
     let harness = harness_with_model(Duration::ZERO, "192", approximation_model()).await;
-    let mut request = estimate_request("128");
+    let mut request = borderline_request("128");
     request.mode = EstimateMode::Rough;
     request.slow_attack_policy = None;
 
@@ -259,12 +356,13 @@ async fn rough_mode_uses_and_caches_calibrated_slow_attack_approximations() {
     let metadata = json_request::<Value>(&harness.app, "GET", "/v1/metadata", &Value::Null).await;
     assert_eq!(metadata.1["approximation"]["available"], true);
     assert_eq!(metadata.1["approximation"]["group_count"], 2);
+    assert_eq!(metadata.1["slow_attack_applicability_rule_version"], 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn adaptive_cutoff_falls_back_to_calibrated_approximations() {
+async fn calibrated_preflight_skips_slow_worker_plans() {
     let harness = harness_with_model(Duration::from_secs(5), "192", approximation_model()).await;
-    let request = estimate_request("64");
+    let request = borderline_request("64");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(submitted.0, StatusCode::ACCEPTED);
     let batch_id = submitted.1["batch_id"].as_str().unwrap();
@@ -282,16 +380,29 @@ async fn adaptive_cutoff_falls_back_to_calibrated_approximations() {
             .unwrap();
         assert_eq!(result["outcome"]["kind"], "approximate");
     }
-    assert_eq!(harness.calls.load(Ordering::SeqCst), 3);
-    let plans = harness.plans.lock().unwrap();
-    assert_eq!(plans[1], ["arora_gb"]);
-    assert_eq!(plans[2], ["bkw"]);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 1);
+    let plans = harness.plans.lock().unwrap().clone();
+    assert_eq!(
+        plans.as_slice(),
+        &[vec![
+            "usvp".to_owned(),
+            "bdd".to_owned(),
+            "bdd_hybrid".to_owned(),
+            "bdd_mitm_hybrid".to_owned(),
+            "dual".to_owned(),
+            "dual_hybrid".to_owned(),
+        ]]
+    );
+    let calls = harness.calls.load(Ordering::SeqCst);
+    let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), calls);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approximation_below_required_security_plus_margin_waits_for_real_results() {
     let harness = harness_with_model(Duration::from_millis(50), "192", approximation_model()).await;
-    let request = estimate_request("80");
+    let request = borderline_request("80");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     assert_eq!(submitted.0, StatusCode::ACCEPTED);
     let batch_id = submitted.1["batch_id"].as_str().unwrap();
@@ -314,7 +425,7 @@ async fn approximation_below_required_security_plus_margin_waits_for_real_result
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn overlapping_batches_share_the_per_attack_cache() {
     let harness = harness(Duration::from_millis(50), "96").await;
-    let request = estimate_request("256");
+    let request = applicable_request("256");
     let (left, right) = tokio::join!(
         json_request(&harness.app, "POST", "/v1/estimates", &request),
         json_request(&harness.app, "POST", "/v1/estimates", &request),
@@ -337,7 +448,7 @@ async fn overlapping_batches_share_the_per_attack_cache() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancel_is_idempotent_and_preserves_fast_results() {
     let harness = harness(Duration::from_secs(5), "96").await;
-    let request = estimate_request("256");
+    let request = applicable_request("256");
     let submitted = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
     let batch_id = submitted.1["batch_id"].as_str().unwrap();
     for _ in 0..100 {
@@ -551,8 +662,9 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
     assert!(dashboard.1.contains("data-workspace-tabs"));
     assert!(dashboard.1.contains("冲突策略是什么意思？"));
     assert!(dashboard.1.contains("历史批次和报告仍保留原始参数快照"));
-    assert!(dashboard.1.contains("慢攻击判断"));
-    assert!(dashboard.1.contains("期望安全 + 停止余量"));
+    assert!(dashboard.1.contains("慢攻击三级判断"));
+    assert!(dashboard.1.contains("期望安全 + 预判余量"));
+    assert!(!dashboard.1.contains("decision_after_seconds"));
     assert!(
         dashboard
             .1
@@ -571,12 +683,66 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
     assert_eq!(detail.0, StatusCode::OK);
     assert!(detail.1.contains("lwe-512"));
     assert!(detail.1.contains("ntru-1024"));
+    assert!(detail.1.contains("编辑方案"));
+    assert!(detail.1.contains("data-initial-cases"));
+    assert!(
+        detail
+            .1
+            .contains("action=\"/ui/parameter-sets/demo-scheme/edit\"")
+    );
+
+    let invalid_edit = text_request(
+        &harness.app,
+        "POST",
+        "/ui/parameter-sets/demo-scheme/edit",
+        Some("parameter_set_name=Invalid&cases_json=%5B%5D"),
+    )
+    .await;
+    assert_eq!(
+        invalid_edit.0,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        invalid_edit.1
+    );
+    assert_eq!(
+        harness.state.database.list_parameter_sets().await.unwrap()[0].version,
+        1
+    );
+
+    let mut edited_case = parameter_set.cases[0].clone();
+    edited_case.name = "Edited-LWE".to_owned();
+    let edited_cases = serde_json::to_string(&vec![edited_case]).unwrap();
+    let edit = text_request(
+        &harness.app,
+        "POST",
+        "/ui/parameter-sets/demo-scheme/edit",
+        Some(&format!(
+            "parameter_set_name=Edited-Scheme&parameter_set_description=Updated&cases_json={edited_cases}"
+        )),
+    )
+    .await;
+    assert_eq!(edit.0, StatusCode::SEE_OTHER);
+    assert!(edit.1.is_empty());
+    let edited = harness
+        .state
+        .database
+        .export_parameter_set("demo-scheme")
+        .await
+        .unwrap();
+    assert_eq!(edited.name, "Edited-Scheme");
+    assert_eq!(edited.description.as_deref(), Some("Updated"));
+    assert_eq!(edited.cases.len(), 1);
+    assert_eq!(edited.cases[0].name, "Edited-LWE");
+    assert_eq!(
+        harness.state.database.list_parameter_sets().await.unwrap()[0].version,
+        2
+    );
 
     let run = text_request(
         &harness.app,
         "POST",
         "/ui/parameter-sets/demo-scheme/run",
-        Some("case_ids=lwe-512&timeout_seconds=10&decision_after_seconds=1&required_security_bits=256&stop_margin_bits=16"),
+        Some("case_ids=lwe-512&timeout_seconds=10&required_security_bits=256&stop_margin_bits=16"),
     )
     .await;
     assert_eq!(run.0, StatusCode::SEE_OTHER);
@@ -635,7 +801,7 @@ async fn quick_estimate_form_accepts_multiple_cases_in_rough_mode() {
     }
     let cases_json = serde_json::to_string(&vec![first, second]).unwrap();
     let body = format!(
-        "cases_json={cases_json}&mode=rough&timeout_seconds=10&decision_after_seconds=1&required_security_bits=128&stop_margin_bits=16"
+        "cases_json={cases_json}&mode=rough&timeout_seconds=10&required_security_bits=128&stop_margin_bits=16"
     );
     let submitted = text_request(&harness.app, "POST", "/ui/estimates", Some(&body)).await;
     assert_eq!(submitted.0, StatusCode::SEE_OTHER);
@@ -677,7 +843,7 @@ async fn quick_estimate_form_can_save_cases_with_or_without_running_them() {
     case.name = "Saved case".to_owned();
     let cases_json = serde_json::to_string(&vec![case.clone()]).unwrap();
     let body = format!(
-        "cases_json={cases_json}&action=save&parameter_set_id=quick-saved&parameter_set_name=Quick+Saved&parameter_set_description=Created+from+the+form&conflict=reject&mode=normal&timeout_seconds=10&decision_after_seconds=1&required_security_bits=128&stop_margin_bits=16"
+        "cases_json={cases_json}&action=save&parameter_set_id=quick-saved&parameter_set_name=Quick+Saved&parameter_set_description=Created+from+the+form&conflict=reject&mode=normal&timeout_seconds=10&required_security_bits=128&stop_margin_bits=16"
     );
     let saved = text_request(&harness.app, "POST", "/ui/estimates", Some(&body)).await;
     assert_eq!(saved.0, StatusCode::SEE_OTHER);
@@ -705,7 +871,7 @@ async fn quick_estimate_form_can_save_cases_with_or_without_running_them() {
     );
 
     let save_and_run_body = format!(
-        "cases_json={cases_json}&action=save_run&parameter_set_id=quick-saved-run&parameter_set_name=Quick+Saved+Run&conflict=reject&mode=rough&timeout_seconds=10&decision_after_seconds=1&required_security_bits=128&stop_margin_bits=16"
+        "cases_json={cases_json}&action=save_run&parameter_set_id=quick-saved-run&parameter_set_name=Quick+Saved+Run&conflict=reject&mode=rough&timeout_seconds=10&required_security_bits=128&stop_margin_bits=16"
     );
     let saved_and_run = text_request(
         &harness.app,
@@ -746,7 +912,6 @@ async fn sweep_api_expands_cartesian_axes_and_stages_beyond_queue_capacity() {
         }],
         timeout_seconds: 10,
         slow_attack_policy: Some(SlowAttackPolicy {
-            decision_after_seconds: 1,
             required_security_bits: ExactDecimal::new("256").unwrap(),
             stop_margin_bits: ExactDecimal::new("16").unwrap(),
         }),
@@ -768,7 +933,6 @@ async fn sweep_api_expands_cartesian_axes_and_stages_beyond_queue_capacity() {
         ],
         timeout_seconds: 10,
         slow_attack_policy: Some(SlowAttackPolicy {
-            decision_after_seconds: 1,
             required_security_bits: ExactDecimal::new("256").unwrap(),
             stop_margin_bits: ExactDecimal::new("16").unwrap(),
         }),
@@ -835,11 +999,13 @@ async fn harness_with_optional_model(
 ) -> Harness {
     let calls = Arc::new(AtomicUsize::new(0));
     let plans = Arc::new(StdMutex::new(Vec::new()));
+    let no_finite_attacks = Arc::new(StdMutex::new(HashSet::new()));
     let mock_state = MockState {
         calls: calls.clone(),
         plans: plans.clone(),
         slow_delay,
         security_bits,
+        no_finite_attacks: no_finite_attacks.clone(),
     };
     let worker_router = Router::new()
         .route("/v1/metadata", get(mock_metadata))
@@ -870,6 +1036,7 @@ async fn harness_with_optional_model(
         state,
         calls,
         plans,
+        no_finite_attacks,
         _directory: directory,
         worker,
     }
@@ -885,7 +1052,7 @@ fn approximation_model() -> ApproximationModelFile {
         "provenance": {
             "estimator_commit": "6019056011d10d7e9c30a0d5da2d2f729fbc2eec",
             "sage_version": "10.9",
-            "adapter_version": "1",
+            "adapter_version": "2",
             "worker_image": "mock-worker",
             "platform": "linux/amd64",
             "dataset_hash": format!("sha256:{}", "d".repeat(64))
@@ -899,8 +1066,8 @@ fn approximation_model() -> ApproximationModelFile {
             "secret": {"kind": "uniform_binary"},
             "sample_mode": "unlimited",
             "domain": {
-                "log2_dimension": {"min": "9", "max": "9"},
-                "log2_modulus": {"min": "16", "max": "16"},
+                "log2_dimension": {"min": "7", "max": "7"},
+                "log2_modulus": {"min": "8", "max": "8"},
                 "log2_error_standard_deviation": {"min": "1.67", "max": "1.69"}
             },
             "neighbor_count": 1,
@@ -913,8 +1080,8 @@ fn approximation_model() -> ApproximationModelFile {
                 "max_overestimate_bits": "0.75"
             },
             "points": [{
-                "log2_dimension": "9",
-                "log2_modulus": "16",
+                "log2_dimension": "7",
+                "log2_modulus": "8",
                 "log2_error_standard_deviation": "1.678071905",
                 "security_bits": "90"
             }]
@@ -950,16 +1117,17 @@ async fn text_request(
 
 async fn mock_metadata() -> Json<Value> {
     Json(json!({
-        "adapter_schema_version": 1,
+        "adapter_schema_version": 2,
         "dependency_graph_version": 1,
         "estimator_commit": "6019056011d10d7e9c30a0d5da2d2f729fbc2eec",
         "sage_version": "10.9",
-        "adapter_version": "1",
+        "adapter_version": "2",
         "worker_image": "mock-worker",
         "platform": "linux/amd64",
         "support_matrix": {},
         "dependency_graph": {},
-        "adaptive_attacks": ["arora_gb", "bkw"]
+        "adaptive_attacks": ["arora_gb", "bkw"],
+        "slow_attack_applicability_rule_version": 0
     }))
 }
 
@@ -981,27 +1149,43 @@ async fn mock_estimate(State(state): State<MockState>, Json(request): Json<Value
     let results = targets
         .into_iter()
         .map(|attack| {
-            json!({
-                "attack": attack,
-                "role": "target",
-                "outcome": {
-                    "kind": "computed",
-                    "security_bits": state.security_bits,
-                    "metrics": {}
-                }
-            })
+            let no_finite = attack
+                .as_str()
+                .is_some_and(|name| state.no_finite_attacks.lock().unwrap().contains(name));
+            if no_finite {
+                json!({
+                    "attack": attack,
+                    "role": "target",
+                    "outcome": {
+                        "kind": "no_finite_estimate",
+                        "code": "no_finite_rop",
+                        "reason": "mock returned no finite positive rop",
+                        "raw_result": {"result": "rop: +Infinity"}
+                    }
+                })
+            } else {
+                json!({
+                    "attack": attack,
+                    "role": "target",
+                    "outcome": {
+                        "kind": "computed",
+                        "security_bits": state.security_bits,
+                        "metrics": {}
+                    }
+                })
+            }
         })
         .collect::<Vec<_>>();
     Json(json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "plan": {"dependency_graph_version": 1, "target": [], "support": [], "executed": []},
         "results": results,
         "duration_ms": 1,
         "provenance": {
             "estimator_commit": "6019056011d10d7e9c30a0d5da2d2f729fbc2eec",
             "sage_version": "10.9",
-            "adapter_version": "1",
-            "adapter_schema_version": 1,
+            "adapter_version": "2",
+            "adapter_schema_version": 2,
             "dependency_graph_version": 1,
             "worker_image": "mock-worker"
         }
@@ -1012,10 +1196,34 @@ fn estimate_request(required_security: &str) -> EstimateRequest {
     let mut value: Value =
         serde_json::from_str(include_str!("../../fixtures/examples/demo-run.json")).unwrap();
     value["timeout_seconds"] = json!(10);
-    value["slow_attack_policy"]["decision_after_seconds"] = json!(1);
     value["slow_attack_policy"]["required_security_bits"] = json!(required_security);
     value["slow_attack_policy"]["stop_margin_bits"] = json!("16");
     serde_json::from_value(value).unwrap()
+}
+
+fn applicable_request(required_security: &str) -> EstimateRequest {
+    let mut request = estimate_request(required_security);
+    let problem = &mut request.cases[0].problem;
+    let lattice_security::Problem::Lwe(problem) = problem else {
+        panic!("demo request must contain LWE parameters");
+    };
+    problem.dimension = 128;
+    problem.modulus = lattice_security::PositiveInteger::new("4").unwrap();
+    problem.error = lattice_security::ErrorDistribution::DiscreteGaussian {
+        standard_deviation: ExactDecimal::new("1").unwrap(),
+    };
+    request
+}
+
+fn borderline_request(required_security: &str) -> EstimateRequest {
+    let mut request = estimate_request(required_security);
+    let problem = &mut request.cases[0].problem;
+    let lattice_security::Problem::Lwe(problem) = problem else {
+        panic!("demo request must contain LWE parameters");
+    };
+    problem.dimension = 128;
+    problem.modulus = lattice_security::PositiveInteger::new("256").unwrap();
+    request
 }
 
 async fn json_request<T: serde::Serialize>(

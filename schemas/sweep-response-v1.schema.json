@@ -321,6 +321,28 @@
         {
           "type": "object",
           "properties": {
+            "code": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "no_finite_estimate"
+            },
+            "raw_result": true,
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "code",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
             "kind": {
               "type": "string",
               "const": "timeout"
@@ -381,6 +403,33 @@
             "code",
             "message",
             "retryable"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "applicability_rule_version": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "code": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "policy_skipped"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "code",
+            "reason",
+            "applicability_rule_version"
           ]
         },
         {

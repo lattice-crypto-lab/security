@@ -1,8 +1,11 @@
 # Migrated parameter sets
 
-本目录保存从仓库旧 Python 脚本和 Notebook 活动代码迁移出的
+本目录保存从旧 Python 脚本和 Notebook 活动代码迁移出的
 `lattice-security/parameter-set` v1 文件。每个文件都是可由 Web 或
 `POST /v1/parameter-sets/import` 直接导入的一组方案参数。
+
+旧脚本、Notebook 和 `lwe_security/` 已在迁移验证完成后删除。下表保留原
+文件名作为数据来源记录；这些 JSON 文件现在是受维护的参数来源。
 
 ## 映射
 
@@ -31,13 +34,15 @@ lattice-estimator 没有对应的概率型对象，adapter 使用平衡的典型
 `EXACT`/`SMART_EXACT` 是运行策略，不属于参数身份；新服务在运行时通过
 “正常/快速”和慢攻击策略控制执行。
 
-## 未生成参数文件的来源
+## 未迁移为参数文件的历史来源
 
 - `prime.py` 只有 NTT-friendly 模数搜索条件，没有 secret/error 等完整问题输入；
   它应作为 sweep 约束使用，不能独立构成安全估算 case。
 - `utils.py` 与 `lwe_security/` 是旧常量、缓存和调用实现，没有独立方案。
 - `gaussian.ipynb` 是离散高斯采样实验，缺少维数、模数和密钥分布。
 - `root.ipynb` 是有限域根实验，`static.ipynb` 是耗时统计，均不是安全估算输入。
+
+上述不构成完整安全问题的历史文件也已随旧研究代码清理删除。
 
 注释掉的备选参数没有迁移。Notebook 中已有数值输出也没有转换成 computed
 report，因为它们缺少可验证的 estimator commit、Sage 版本与镜像 provenance。

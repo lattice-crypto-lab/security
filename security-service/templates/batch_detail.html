@@ -11,7 +11,7 @@
     <div class="parameter-summary"><strong>{{ report.parameters.primary }}</strong>{% if !report.parameters.secret.is_empty() %}<span>{{ report.parameters.secret }}</span>{% endif %}{% if !report.parameters.error.is_empty() %}<span>{{ report.parameters.error }}</span>{% endif %}</div>
     <div class="attack-grid">
     {% for attack in report.attacks %}
-      <div class="attack attack-{{ attack.outcome }}"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small title="{{ attack.detail }}">{{ attack.detail }}{% if attack.cached %} · cached{% endif %}</small></div>
+      <div class="attack attack-{{ attack.outcome }}"><span class="mono">{{ attack.name }}</span><strong>{{ attack.security }}</strong><small title="{{ attack.detail }}">{{ attack.detail }}{% if attack.cached %} · cached{% endif %}</small>{% if !attack.audit.is_empty() %}<details class="attack-audit"><summary>estimator details</summary><pre>{{ attack.audit }}</pre></details>{% endif %}</div>
     {% endfor %}
     </div>
   </details>

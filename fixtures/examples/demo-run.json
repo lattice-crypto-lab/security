@@ -15,7 +15,6 @@
   ],
   "timeout_seconds": 3600,
   "slow_attack_policy": {
-    "decision_after_seconds": 300,
     "required_security_bits": "128",
     "stop_margin_bits": "16"
   }

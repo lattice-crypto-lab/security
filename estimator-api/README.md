@@ -40,9 +40,9 @@ is the hash-locked, third-party-only export installed by the Sage image.
 The image includes `/app/estimator-api/tools/phase4_calibration.py`. It collects real
 `arora_gb`/`bkw` observations through this API and builds the versioned
 conservative model consumed by `security-service`. The normal two-service stack
-does not run the tool; Compose's optional `calibration` profile provides a
-one-shot entry point. Collection is resumable and retries transient collector
-failures. See `docs/refactor/phase-4-approximation.md` for the reviewed workflow.
+does not run the tool; `compose.calibration.yaml` provides a separate one-shot
+entry point. Collection is resumable and retries transient collector failures.
+See `docs/refactor/phase-4-approximation.md` for the reviewed workflow.
 
 ## Windows mock verification
 

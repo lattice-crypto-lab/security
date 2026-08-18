@@ -504,6 +504,12 @@ pub enum AttackOutcome {
         security_bits: ExactDecimal,
         provenance: Box<ApproximationProvenance>,
     },
+    NoFiniteEstimate {
+        code: String,
+        reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw_result: Option<serde_json::Value>,
+    },
     Timeout {
         timeout_seconds: u64,
     },
@@ -515,6 +521,11 @@ pub enum AttackOutcome {
         code: String,
         message: String,
         retryable: bool,
+    },
+    PolicySkipped {
+        code: String,
+        reason: String,
+        applicability_rule_version: u32,
     },
     Skipped {
         reason: String,

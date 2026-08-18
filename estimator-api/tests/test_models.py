@@ -11,7 +11,7 @@ from estimator_api.planner import resolve_plan
 
 def request_data() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "problem": {
             "kind": "lwe",
             "dimension": 512,

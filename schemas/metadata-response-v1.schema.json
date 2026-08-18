@@ -40,6 +40,12 @@
     "sage_version": {
       "type": "string"
     },
+    "slow_attack_applicability_rule_version": {
+      "type": "integer",
+      "format": "uint32",
+      "default": 0,
+      "minimum": 0
+    },
     "support_matrix": true,
     "worker_image": {
       "type": "string"

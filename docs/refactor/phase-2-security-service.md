@@ -17,16 +17,18 @@ cache after acquiring the lane. Worker transport failures are retried once.
 On restart, unfinished attempts become interrupted; attempts below the retry
 limit are queued once more.
 
-For LWE-derived cases, missing fast attacks run as one plan. Missing
-`arora_gb` and `bkw` targets then run as two separately cancellable plans. Each
-timer cuts off only its corresponding attack, and only when that attack has a
-calibrated conservative approximation at or above
-`required_security_bits + stop_margin_bits`. Missing, out-of-domain, or lower
-approximations continue until completion or the overall worker timeout.
+For LWE-derived cases, missing fast attacks run as one plan. Before creating
+separate `arora_gb` and `bkw` plans, versioned applicability rules classify
+each attack as applicable, borderline, or inapplicable. Inapplicable attacks
+produce `policy_skipped`; applicable attacks run. Borderline inputs consult the
+calibrated model. A prediction at or above
+`required_security_bits + stop_margin_bits` skips that worker plan entirely;
+a missing or lower prediction causes the real attack to run until completion
+or the overall worker timeout.
 
 Cancellation is persisted before the in-flight HTTP request is dropped. Any
 completed results remain cached and exportable in a partial report. A policy
-cutoff produces a calibrated `approximate` outcome in its separate model-keyed
+preflight produces a calibrated `approximate` outcome in its separate model-keyed
 cache and never populates the computed cache.
 
 ## Status

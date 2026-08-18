@@ -150,6 +150,8 @@ impl AppState {
         let database = Database::open(&config.database_path)?;
         let upstream = EstimatorClient::new(&config.estimator_url)?;
         let mut metadata = upstream.metadata().await?;
+        metadata.slow_attack_applicability_rule_version =
+            crate::SLOW_ATTACK_APPLICABILITY_RULE_VERSION;
         let approximation = ApproximationEngine::load(
             config.approximation_model_path.as_deref(),
             &metadata.context(),

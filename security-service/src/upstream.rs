@@ -28,6 +28,8 @@ pub struct Metadata {
     pub dependency_graph: serde_json::Value,
     pub adaptive_attacks: Vec<Attack>,
     #[serde(default)]
+    pub slow_attack_applicability_rule_version: u32,
+    #[serde(default)]
     pub approximation: ApproximationMetadata,
 }
 
@@ -60,7 +62,7 @@ impl WorkerRequest {
         timeout_seconds: u64,
     ) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             problem,
             models: WorkerModels {
                 cost_model: analysis.cost_model,
@@ -114,6 +116,12 @@ pub enum WorkerOutcome {
         security_bits: ExactDecimal,
         #[serde(default)]
         metrics: std::collections::BTreeMap<String, NormalizedMetric>,
+    },
+    NoFiniteEstimate {
+        code: String,
+        reason: String,
+        #[serde(default)]
+        raw_result: Option<serde_json::Value>,
     },
     Unsupported {
         code: String,

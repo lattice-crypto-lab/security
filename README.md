@@ -1,80 +1,121 @@
 # lattice-security
 
-Local Web service for evaluating lattice parameter sets with the pinned
+Web UI and API for estimating the security of LWE, RLWE, GLWE, NTRU, and SIS
+parameter sets with the pinned
 [`lattice-estimator`](https://github.com/malb/lattice-estimator).
 
-The target deployment has two containers:
+It supports multi-case schemes, JSON import/export, asynchronous runs, and a
+persistent per-attack cache. The browser only connects to the Rust service;
+SageMath remains inside the Compose network.
 
-- `security-service`: the only public service. It owns the public API, JSON
-  import/export, SQLite state, per-attack cache, run scheduling, and Web UI.
-- `estimator-api`: an internal FastAPI/Sage adapter. It accepts one normalized
-  problem, runs the fixed estimator attack set, and returns security bits.
+## Quick start
 
-A parameter set represents one scheme and contains one or more independently
-runnable cases. Cases can be evaluated together, selected, or one at a time.
-Computed attack results are cached by normalized parameters, analysis model,
-attack, and exact estimator environment.
-
-The Web UI also has a direct security-estimation form for entering one or more
-LWE, RLWE, GLWE, NTRU, or SIS cases without first creating an import file.
-`rough` runs the fast attack set and, when a reviewed phase 4 model covers the
-input, adds conservative estimates for `arora_gb` and `bkw`. `normal`
-additionally runs those attacks and uses the same approximation only after the
-adaptive cutoff or timeout. Computed and approximate results use separate
-per-attack caches.
-
-For LWE-derived problems the service exposes all eight estimator attacks. Six
-fast attacks run normally. `arora_gb` and `bkw` then run in separate estimator
-plans with separate decision timers (300 seconds by default). At a decision
-time, the service cancels only that unfinished attack and only when its
-calibrated conservative estimate is at least the requested security level plus
-the stop margin (16 bits by default). Missing, out-of-domain, or insufficient
-approximations never trigger early termination. A slow estimate always
-identifies its dataset, estimator environment, holdout error, and safety margin.
-
-The original notebooks and Python utilities remain in the repository as
-research archives. The new service does not preserve their profiles, caches,
-or historical result formats.
-
-Current status:
-
-- Contract, estimator adapter, Rust service, phase 3 Web UI, and phase 4 model
-  pipeline pass Windows mock tests.
-- Phase 4 Linux Sage observations, model review, and Docker verification are
-  pending. Until a reviewed `security-service/models/slow-attacks-v1.json`
-  exists, approximation is intentionally disabled.
-
-Run the Rust checks on Windows with:
-
-```powershell
-cargo test --locked --manifest-path security-service/Cargo.toml
-cargo clippy --locked --manifest-path security-service/Cargo.toml --all-targets -- -D warnings
-```
-
-Release tags compare image inputs with the previous release tag and publish
-only changed `linux/amd64` images to GHCR. The two image versions are therefore
-independent. Stable releases also update each image's `latest` alias; an
-unchanged image is retagged without being rebuilt. Pre-release tags do not move
-`latest`.
-
-Compose uses `latest` by default. For a reproducible Debian deployment, pin
-exact versions with:
+Requirements: Docker with Compose and an x86-64 Linux host.
 
 ```bash
-export SECURITY_SERVICE_VERSION=0.1.1
-export ESTIMATOR_API_VERSION=0.1.0
 docker compose pull
 docker compose up -d
 ```
 
-For a local source build, initialize the pinned estimator submodule and run:
+Open <http://127.0.0.1:8080>. Runtime data is stored in the named Docker volume
+`lattice-security-data` and survives container replacement.
+
+If the GHCR packages are private, log in before pulling:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_NAME --password-stdin
+```
+
+The token needs read access to the two container packages.
+
+## Configuration
+
+Create a `.env` file next to `compose.yaml` only for values you want to change:
+
+```dotenv
+# Allow access from other machines. Keep 127.0.0.1 for local-only access.
+LATTICE_SECURITY_HOST=0.0.0.0
+
+# Strongly recommended when exposing the service to a LAN.
+LATTICE_SECURITY_API_TOKEN=replace-with-a-random-token
+
+# Optional reproducible image versions; the default is latest.
+SECURITY_SERVICE_VERSION=0.1.2
+ESTIMATOR_API_VERSION=0.1.1
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LATTICE_SECURITY_HOST` | `127.0.0.1` | Host address on which the Web service is published |
+| `LATTICE_SECURITY_PORT` | `8080` | Published host port |
+| `LATTICE_SECURITY_API_TOKEN` | empty | Shared Web login and Bearer API token |
+| `SECURITY_SERVICE_VERSION` | `latest` | Rust service image tag |
+| `ESTIMATOR_API_VERSION` | `latest` | Sage adapter image tag |
+
+Apply configuration changes with:
+
+```bash
+docker compose up -d --pull always
+```
+
+## What it provides
+
+- Direct `rough` or `normal` security estimation for one or more cases.
+- A parameter-set library with editing, import, export, and selected-case runs.
+- Persistent batch history and immutable computed attack caching.
+- Versioned handling of the expensive `arora_gb` and `bkw` attacks.
+- Explicit RLWE/GLWE coefficient-embedding reports instead of silent reduction.
+
+`rough` runs the fast attack set. `normal` additionally classifies each slow
+attack as applicable, borderline, or irrelevant. Applicable attacks run in
+Sage, irrelevant attacks are recorded as policy-skipped, and borderline
+attacks may use a reviewed conservative calibration model when available.
+
+## Architecture
+
+- `security-service`: public Rust Web/API service, scheduler, SQLite database,
+  reports, and caches.
+- `estimator-api`: private Python/Sage adapter around the pinned `estimator/`
+  submodule.
+
+Only `security-service` publishes a host port. Parameters and reports use the
+schemas in [`schemas/`](schemas/), and maintained example schemes live in
+[`parameter-sets/`](parameter-sets/).
+
+## Development
+
+Initialize the estimator submodule and build both images locally:
 
 ```bash
 git submodule update --init --recursive
 docker compose -f compose.yaml -f compose.build.yaml up --build
 ```
 
-Compose publishes only `127.0.0.1:8080`; `estimator-api` has no host port.
-The optional `calibration` Compose profile is a one-shot tool, not a third
-production service. See `docs/refactor/phase-4-approximation.md` for collection
-and model-build commands.
+Run the local checks:
+
+```powershell
+cargo test --locked --manifest-path security-service/Cargo.toml
+cargo clippy --locked --manifest-path security-service/Cargo.toml --all-targets -- -D warnings
+
+cd estimator-api
+uv sync --frozen --all-groups
+uv run --frozen pytest
+uv run --frozen ruff check src tests tools
+```
+
+## Documentation
+
+- [`security-service/README.md`](security-service/README.md): API, Web UI, and
+  runtime behavior.
+- [`estimator-api/README.md`](estimator-api/README.md): Sage adapter contract
+  and locked environment.
+- [`docs/refactor/phase-4-approximation.md`](docs/refactor/phase-4-approximation.md):
+  slow-attack calibration and review workflow.
+- [`fixtures/README.md`](fixtures/README.md): purpose and maintenance rules for
+  test fixtures.
+
+## Status
+
+The Rust service and mock estimator integration pass on Windows. Real Sage
+calibration, image verification, and browser smoke tests on Linux remain
+pending; the repository does not claim those checks are complete.

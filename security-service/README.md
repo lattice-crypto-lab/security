@@ -55,14 +55,14 @@ requests, reports, and attack-cache entries because those records contain their
 own immutable case snapshots.
 
 The direct form has two execution modes. `rough` runs the fast attack set and
-uses a calibrated conservative approximation for missing `arora_gb` and `bkw`
-results when the input is inside the reviewed model domain. `normal` also
-schedules those attacks under the adaptive slow-attack policy and may use the
-same approximation after cutoff or timeout. Outside the calibrated domain the
-slow outcomes remain skipped, timed out, or unsupported. A later normal run
-reuses fast results produced by a rough run. Submitting identical work creates
-separate batch records, while completed-cache lookup and scheduler
-single-flight prevent duplicate estimator execution.
+uses a calibrated conservative approximation for borderline `arora_gb` and
+`bkw` inputs when the model covers them. `normal` first applies versioned
+applicability rules: clearly irrelevant attacks become `policy_skipped`,
+borderline inputs consult the calibrated model, and clearly applicable inputs
+run the real attack. A later normal run reuses fast results produced by a rough
+run. Submitting identical work creates separate batch records, while
+completed-cache lookup and scheduler single-flight prevent duplicate estimator
+execution.
 
 HTMX 2.0.10 is version-pinned with SRI. The UI is server-rendered; imported
 sets and active batches are reconstructed from SQLite after reload or
@@ -74,14 +74,16 @@ An estimate returns `202` when work was queued and `200` when every attack was
 already cached. Batch snapshots contain a monotonic revision, update time,
 polling hint, job IDs, and the report once available.
 
-The normal-mode form explains the slow-attack decision rule inline. The
-scheduler runs the six fast LWE attacks first, then runs `arora_gb` and `bkw`
-in separate estimator plans. Each slow attack has its own decision timer. An
-unfinished attack is disconnected only when its calibrated conservative
-estimate reaches `required_security_bits + stop_margin_bits`; missing,
-out-of-domain, or lower estimates continue until a real result or the overall
-timeout. The Python adapter then terminates and reaps only that Sage process
-group. The Web defaults are 300 seconds and a 16-bit stop margin. Computed and
+The normal-mode form explains the three-level slow-attack rule inline. The
+scheduler runs the six fast LWE attacks first, then classifies `arora_gb` and
+`bkw` individually. An inapplicable attack receives a versioned
+`policy_skipped` outcome. A borderline attack consults the model; a calibrated
+conservative estimate reaching `required_security_bits + stop_margin_bits`
+skips that estimator plan before any Sage process is created. Applicable
+attacks and borderline inputs with a missing or lower estimate run until a
+result or the overall timeout. The Python adapter
+terminates and reaps a timed-out Sage process group. The Web default is a
+16-bit preflight margin. Computed and
 approximate caches are separate. Approximate
 cache identity includes the model hash, so replacing the model cannot reuse
 stale estimates. The UI labels approximate outcomes and exposes dataset,
@@ -89,8 +91,8 @@ estimator provenance, holdout error, and the applied safety margin.
 
 ## Verification status
 
-Windows mock integration covers caching, overlapping requests, ETag, adaptive
-cutoff, cancellation, transactional parameter-set import, UI rendering,
+Windows mock integration covers caching, overlapping requests, ETag, calibrated
+preflight, cancellation, transactional parameter-set import/editing, UI rendering,
 selected-case execution, Cartesian sweep expansion, and pending queue staging.
 It also covers calibrated approximation, provenance matching, domain refusal,
 and model-versioned caching. An in-app browser smoke test covers the desktop

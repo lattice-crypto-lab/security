@@ -56,10 +56,24 @@ def test_checked_in_v1_plan_has_buildable_holdout_groups() -> None:
         }
         groups.setdefault(tool.group_key(value), []).append(value)
 
-    assert len(requests) == 640
+    assert len(requests) == 400
     assert len(groups) == 4
-    assert max(request["problem"]["dimension"] for request in requests) == 2**16
+    assert {request["problem"]["dimension"] for request in requests} == {64, 80, 96, 128}
+    assert {request["problem"]["modulus"] for request in requests} == {
+        "32",
+        "64",
+        "128",
+        "256",
+        "512",
+    }
     assert {request["models"]["cost_model"] for request in requests} == {"BDGL16"}
+    assert {request["problem"]["error"]["standard_deviation"] for request in requests} == {
+        "2.5",
+        "2.8",
+        "3.2",
+        "3.6",
+        "4",
+    }
     assert all(
         tool.build_group(key, values, neighbor_count=4, cushion=2.0)["holdout"]["samples"] >= 4
         for key, values in groups.items()
@@ -143,6 +157,10 @@ def test_resume_retries_transient_rows_but_skips_terminal_rows(tmp_path: Path) -
             "outcome": {"kind": "unsupported", "reason": "not available"},
         },
         {
+            "identity": "no-finite",
+            "outcome": {"kind": "no_finite_estimate", "reason": "infinite rop"},
+        },
+        {
             "identity": "retry",
             "outcome": {"kind": "failed", "retryable": True},
         },
@@ -156,4 +174,9 @@ def test_resume_retries_transient_rows_but_skips_terminal_rows(tmp_path: Path) -
         "\n".join(tool.canonical_json(row) for row in rows) + "\n",
         encoding="utf-8",
     )
-    assert tool.existing_identities(path) == {"computed", "unsupported", "terminal"}
+    assert tool.existing_identities(path) == {
+        "computed",
+        "no-finite",
+        "unsupported",
+        "terminal",
+    }

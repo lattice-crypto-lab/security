@@ -324,6 +324,13 @@ class UnsupportedOutcome(StrictModel):
     raw_result: JsonValue | None = None
 
 
+class NoFiniteEstimateOutcome(StrictModel):
+    kind: Literal["no_finite_estimate"]
+    code: str
+    reason: str
+    raw_result: JsonValue | None = None
+
+
 class FailedOutcome(StrictModel):
     kind: Literal["failed"]
     code: str
@@ -333,7 +340,8 @@ class FailedOutcome(StrictModel):
 
 
 WorkerOutcome: TypeAlias = Annotated[
-    ComputedOutcome | UnsupportedOutcome | FailedOutcome, Field(discriminator="kind")
+    ComputedOutcome | NoFiniteEstimateOutcome | UnsupportedOutcome | FailedOutcome,
+    Field(discriminator="kind"),
 ]
 
 

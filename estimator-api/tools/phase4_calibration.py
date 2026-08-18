@@ -29,6 +29,13 @@ MODEL_FORMAT = "lattice-security/slow-attack-model"
 FEATURE_SCHEMA = "lwe-log2-v1"
 VERSION = 1
 SLOW_ATTACKS = {"arora_gb", "bkw"}
+POINT_FIELDS = {
+    "dimension",
+    "modulus",
+    "samples",
+    "secret",
+    "error_standard_deviation",
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -76,38 +83,61 @@ def validate_plan(plan: dict[str, Any]) -> None:
     timeout = plan.get("timeout_seconds")
     if not isinstance(timeout, int) or not 1 <= timeout <= 7200:
         raise ValueError("timeout_seconds must be in 1..=7200")
+    points = plan.get("points", [])
+    if not isinstance(points, list):
+        raise TypeError("plan.points must be a list")
+    for index, point in enumerate(points):
+        if not isinstance(point, dict) or set(point) != POINT_FIELDS:
+            raise ValueError(
+                f"plan.points[{index}] must contain exactly: {', '.join(sorted(POINT_FIELDS))}"
+            )
 
 
 def requests_from_plan(plan: dict[str, Any]) -> Iterable[dict[str, Any]]:
     validate_plan(plan)
     axes = plan["axes"]
-    combinations = itertools.product(
-        plan["attacks"],
-        plan["models"],
-        axes["dimension"],
-        axes["modulus"],
-        axes["samples"],
-        axes["secret"],
-        axes["error_standard_deviation"],
-    )
-    for attack, models, dimension, modulus, samples, secret, sigma in combinations:
-        yield {
-            "schema_version": 1,
-            "problem": {
-                "kind": "lwe",
-                "dimension": dimension,
-                "modulus": str(modulus),
-                "samples": samples,
-                "secret": secret,
-                "error": {
-                    "kind": "discrete_gaussian",
-                    "standard_deviation": str(sigma),
-                },
-            },
-            "models": models,
-            "target_attacks": [attack],
-            "timeout_seconds": plan["timeout_seconds"],
+    grid_points = (
+        {
+            "dimension": dimension,
+            "modulus": modulus,
+            "samples": samples,
+            "secret": secret,
+            "error_standard_deviation": sigma,
         }
+        for dimension, modulus, samples, secret, sigma in itertools.product(
+            axes["dimension"],
+            axes["modulus"],
+            axes["samples"],
+            axes["secret"],
+            axes["error_standard_deviation"],
+        )
+    )
+    seen: set[str] = set()
+    for point in itertools.chain(grid_points, plan.get("points", [])):
+        for attack, models in itertools.product(plan["attacks"], plan["models"]):
+            request = {
+                "schema_version": 2,
+                "problem": {
+                    "kind": "lwe",
+                    "dimension": point["dimension"],
+                    "modulus": str(point["modulus"]),
+                    "samples": point["samples"],
+                    "secret": point["secret"],
+                    "error": {
+                        "kind": "discrete_gaussian",
+                        "standard_deviation": str(point["error_standard_deviation"]),
+                    },
+                },
+                "models": models,
+                "target_attacks": [attack],
+                "timeout_seconds": plan["timeout_seconds"],
+            }
+            identity = sha256_identity(
+                {key: value for key, value in request.items() if key != "timeout_seconds"}
+            )
+            if identity not in seen:
+                seen.add(identity)
+                yield request
 
 
 def existing_identities(path: Path) -> set[str]:
@@ -120,7 +150,7 @@ def existing_identities(path: Path) -> set[str]:
                 value = json.loads(line)
                 outcome = value.get("outcome", {})
                 kind = outcome.get("kind")
-                if kind in {"computed", "unsupported"} or (
+                if kind in {"computed", "no_finite_estimate", "unsupported"} or (
                     kind == "failed" and not outcome.get("retryable", False)
                 ):
                     identities.add(value["identity"])

@@ -25,9 +25,12 @@ The workbench supports:
 - one-axis sweep forms for dimension, modulus, Gaussian error standard
   deviation, and finite sample count.
 
-`rough` executes fast attacks and uses calibrated slow approximations when
-available. `normal` adds separately timed `arora_gb` and `bkw` execution. Both
-modes share the computed per-attack cache, and concurrent
+`rough` executes only the fast attack set. `normal` applies the versioned
+three-level applicability rules to `arora_gb` and `bkw`: irrelevant attacks are
+recorded as policy-skipped, borderline attacks first consult a reviewed
+calibration model, and clearly applicable attacks run in Sage. If the
+borderline estimate is missing or below the configured stop threshold, the real
+attack also runs. Both modes share the computed per-attack cache, and concurrent
 identical attack keys are joined through scheduler single-flight even though
 each submission keeps its own batch identity.
 

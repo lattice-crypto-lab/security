@@ -133,8 +133,6 @@ pub enum EstimateMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SlowAttackPolicy {
-    #[schemars(range(min = 1, max = 7200))]
-    pub decision_after_seconds: u64,
     pub required_security_bits: ExactDecimal,
     pub stop_margin_bits: ExactDecimal,
 }

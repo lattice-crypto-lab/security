@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice Security</title>
-  <link rel="stylesheet" href="/assets/app.css?v=7">
+  <link rel="stylesheet" href="/assets/app.css?v=10">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
-  <script defer src="/assets/app.js?v=7"></script>
+  <script defer src="/assets/app.js?v=9"></script>
 </head>
 <body>
   <header class="topbar">
@@ -48,30 +48,27 @@
             <label>测试方式
               <select name="mode" data-estimate-mode>
                 <option value="rough">粗略测试 · 快速攻击 + 校准近似</option>
-                <option value="normal" selected>正常测试 · 优先真实慢攻击</option>
+                <option value="normal" selected>正常测试 · 先预判再按需运行慢攻击</option>
               </select>
-              <small class="field-note">粗略测试不运行 arora_gb 和 bkw，但会在校准域内使用保守近似；正常测试会复用缓存并继续真实慢攻击。</small>
+              <small class="field-note">粗略测试只运行快速攻击并尽量补充边界区域的校准近似；正常测试会复用缓存，先判断慢攻击适用性，再只运行确实适用或无法安全排除的项目。</small>
             </label>
             <label>总超时（秒）
               <input name="timeout_seconds" type="number" min="2" max="7200" value="3600" required>
-              <small class="field-note">单个 case 的总时间，包含快速攻击以及依次运行的两项慢攻击。</small>
-            </label>
-            <label data-slow-policy>慢攻击判断时间（秒）
-              <input name="decision_after_seconds" type="number" min="1" max="7199" value="300" required>
-              <small class="field-note">arora_gb、bkw 各自独立运行到这个时间后进行判断。</small>
+              <small class="field-note">单个 case 的总时间，包含快速攻击和预判后仍需执行的慢攻击。</small>
             </label>
             <label data-slow-policy>期望安全（bit）
               <input name="required_security_bits" value="128" inputmode="decimal" required>
               <small class="field-note">方案希望达到的最低安全等级。</small>
             </label>
-            <label data-slow-policy>提前停止余量（bit）
+            <label data-slow-policy>预判余量（bit）
               <input name="stop_margin_bits" value="16" inputmode="decimal" required>
-              <small class="field-note">保守近似至少达到“期望安全 + 此余量”才允许停止。</small>
+              <small class="field-note">保守近似至少达到“期望安全 + 此余量”才跳过真实慢攻击。</small>
             </label>
           </div>
           <div class="policy-explainer" data-slow-policy>
-            <strong>慢攻击判断是什么意思？</strong>
-            <p>正常测试先完成快速攻击，再分别运行 arora_gb 和 bkw。每项达到判断时间后，只有该攻击存在校准域内的保守近似，且近似值至少达到“期望安全 + 停止余量”，才会终止该项并采用近似；近似缺失、越界或不足时继续等待真实结果，直到完成或达到总超时。</p>
+            <strong>慢攻击三级判断是什么意思？</strong>
+            <p>正常测试先完成快速攻击。系统再用版本化规则判断 arora_gb 或 bkw：明确不适用时显示 policy_skipped；边界参数先查询校准保守近似，达到“期望安全 + 预判余量”便不启动 Sage；明确适用，或边界近似缺失、不足时，才运行真实攻击。</p>
+            <p><strong>当前 v1 边界：</strong>Arora-GB 要求样本多于 n²，并关注支持宽度不超过 13 的有界误差或 n≤256 的小 Gaussian；BKW 关注 q≤16 的小模数实例，n≤128 且 q≤512 作为校准边界。超出范围会保留带原因的策略排除记录。</p>
           </div>
           <div class="quick-case-list" data-quick-case-list></div>
           <input type="hidden" name="cases_json" data-quick-cases-json>
@@ -94,50 +91,7 @@
       </article>
     </section>
 
-    <template id="quick-case-template">
-      <article class="quick-case" data-quick-case>
-        <div class="quick-case-heading">
-          <div><span class="case-number" data-case-number></span><strong data-case-title>参数</strong></div>
-          <button type="button" class="danger-button" data-remove-quick-case>移除</button>
-        </div>
-        <div class="quick-grid identity-grid">
-          <label>Case ID<input data-field="id" pattern="[A-Za-z0-9._-]+" maxlength="128" required></label>
-          <label>名称<input data-field="name" required></label>
-          <label>问题类型<select data-field="problem_kind"><option value="lwe">LWE</option><option value="rlwe">RLWE</option><option value="glwe">GLWE</option><option value="ntru">NTRU</option><option value="sis">SIS</option></select></label>
-          <label>安全模型<select data-field="security_model"><option value="classical">classical</option><option value="quantum">quantum</option></select></label>
-        </div>
-        <div class="quick-grid">
-          <label data-problems="lwe ntru sis">维数 n<input data-field="dimension" type="number" min="1" step="1" value="1024" required></label>
-          <label data-problems="rlwe glwe">环次数 N<input data-field="ring_degree" type="number" min="1" step="1" value="1024" required></label>
-          <label data-problems="glwe">GLWE 维数 k<input data-field="glwe_dimension" type="number" min="1" step="1" value="1" required></label>
-          <label data-problems="lwe rlwe glwe ntru sis">模数 q<input data-field="modulus" inputmode="numeric" pattern="[0-9]+" value="65536" required></label>
-          <label data-problems="lwe rlwe glwe">样本<select data-field="samples_kind"><option value="unlimited">unlimited</option><option value="finite">finite</option></select></label>
-          <label data-samples="finite">样本数 m<input data-field="sample_count" type="number" min="1" step="1" value="1024" required></label>
-          <label data-problems="ntru">NTRU 结构<select data-field="ntru_structure"><option value="matrix">matrix</option><option value="circulant">circulant</option></select></label>
-          <label data-problems="sis">列数 m<input data-field="columns" type="number" min="1" step="1" value="2048" required></label>
-          <label data-problems="sis">长度界<input data-field="length_bound" value="1024" inputmode="decimal" required></label>
-          <label data-problems="sis">范数<select data-field="norm"><option value="l2">L2</option><option value="l_infinity">L∞</option></select></label>
-        </div>
-        <div class="distribution-grid" data-problems="lwe rlwe glwe ntru">
-          <fieldset>
-            <legend>私钥分布</legend>
-            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="sparse_ternary">sparse ternary（±1 各 1/4）</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
-            <label data-secret="fixed_weight_binary">Hamming weight<input data-field="secret_hamming_weight" type="number" min="0" step="1" value="64" required></label>
-            <div class="quick-grid" data-secret="fixed_weight_ternary"><label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label><label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label></div>
-            <label data-secret="discrete_gaussian">标准差 σ<input data-field="secret_standard_deviation" value="3.2" inputmode="decimal" required></label>
-            <label data-secret="centered_binomial">η<input data-field="secret_eta" type="number" min="1" step="1" value="3" required></label>
-            <div class="quick-grid" data-secret="uniform_integer"><label>下界<input data-field="secret_lower" value="-1" inputmode="numeric" required></label><label>上界<input data-field="secret_upper" value="1" inputmode="numeric" required></label></div>
-          </fieldset>
-          <fieldset>
-            <legend>噪声分布</legend>
-            <label>类型<select data-field="error_kind"><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
-            <label data-error="discrete_gaussian">标准差 σ<input data-field="error_standard_deviation" value="3.2" inputmode="decimal" required></label>
-            <label data-error="centered_binomial">η<input data-field="error_eta" type="number" min="1" step="1" value="3" required></label>
-            <div class="quick-grid" data-error="uniform_integer"><label>下界<input data-field="error_lower" value="-1" inputmode="numeric" required></label><label>上界<input data-field="error_upper" value="1" inputmode="numeric" required></label></div>
-          </fieldset>
-        </div>
-      </article>
-    </template>
+    {% include "case_editor_template.html" %}
 
     <section id="workspace-schemes" class="workspace-panel" data-workspace-panel="schemes"{% if active_tab != "schemes" %} hidden{% endif %}>
       <div class="scheme-layout">
@@ -156,9 +110,8 @@
             <label class="check"><input type="checkbox" name="run_all" value="yes"> 导入后立即运行全部 case</label>
             <div class="form-row compact">
               <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
-              <label>每项慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="300"></label>
               <label>期望安全<input name="required_security_bits" value="128"></label>
-              <label>停止余量<input name="stop_margin_bits" value="16"></label>
+              <label>预判余量<input name="stop_margin_bits" value="16"></label>
             </div>
             <small class="field-note">上面的运行策略仅在勾选“导入后立即运行”时生效；规则与安全估算页的正常测试相同。</small>
             <button class="primary" type="submit">导入方案</button>
@@ -215,8 +168,8 @@
         <form method="post" action="/ui/sweeps" class="stack">
           <textarea name="base_case" rows="10" required placeholder="粘贴一个 ParameterCase JSON"></textarea>
           <div class="form-row"><label>扫描轴<select name="axis"><option value="dimension">dimension</option><option value="modulus">modulus</option><option value="error_standard_deviation">error standard deviation</option><option value="sample_count">sample count</option></select></label><label>值（逗号或换行）<textarea name="values" rows="3" required placeholder="512, 768, 1024"></textarea></label></div>
-          <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>每项慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="300"></label><label>期望安全<input name="required_security_bits" value="128"></label><label>停止余量<input name="stop_margin_bits" value="16"></label></div>
-          <div class="policy-explainer"><strong>慢攻击策略</strong><p>每个 case 分别运行 arora_gb 和 bkw；只有对应保守近似达到“期望安全 + 停止余量”时，才会在判断时间后停止该项。</p></div>
+          <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>期望安全<input name="required_security_bits" value="128"></label><label>预判余量<input name="stop_margin_bits" value="16"></label></div>
+          <div class="policy-explainer"><strong>慢攻击策略</strong><p>每个 case 先做适用性判断：不适用则记录 policy_skipped；边界区域查询校准近似；适用或无法安全排除时运行真实攻击。</p></div>
           <button class="primary" type="submit">生成并运行 sweep</button>
         </form>
       </article>

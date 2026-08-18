@@ -6,6 +6,14 @@ Phase 4 adds a conservative empirical fallback for the public LWE attacks
 `arora_gb` and `bkw`. It does not remove either attack from the public contract
 and does not claim a mathematical proof or a computed estimator result.
 
+Before the empirical model is consulted, deterministic applicability rules
+classify each slow attack as applicable, borderline, or inapplicable. The v1
+rules retain the reviewed smart-exact boundaries: Arora-GB requires a
+sample-rich small bounded-error or small-Gaussian instance; BKW requires a
+small-modulus/LPN-like instance. Inapplicable attacks produce a versioned
+`policy_skipped` outcome. Only borderline inputs consult this model; applicable
+inputs run the real estimator attack.
+
 The Rust service accepts a prediction only when all of the following match a
 reviewed model group:
 
@@ -21,9 +29,9 @@ and holdout counts, holdout error, and margin. Approximate and computed caches
 are separate, and the model hash is part of approximation cache identity.
 
 The runtime `stop_margin_bits` is an additional operational margin after this
-model safety adjustment. With the Web defaults, an attack is eligible for
-early termination after 300 seconds only when its already-conservative estimate
-is at least `128 + 16 = 144` bits.
+model safety adjustment. With the Web defaults, an attack is skipped before it
+starts only when its already-conservative estimate is at least
+`128 + 16 = 144` bits.
 
 No old database or report migration is provided. For this pre-release phase,
 redeploy with a fresh volume when the storage contract changes.
@@ -37,19 +45,25 @@ root:
 ```bash
 mkdir -p calibration/output
 docker compose up -d estimator-api
-docker compose --profile calibration run --rm calibration collect \
+docker compose -f compose.yaml -f compose.calibration.yaml run --rm calibration collect \
   --plan /calibration/plans/slow-attacks-v1.json \
   --output /calibration/output/slow-attacks-v1.jsonl \
   --estimator-url http://estimator-api:8000
 ```
 
-The checked-in classical-only v1 plan contains 640 attack observations. It
-covers dimensions from 128 through `2^16`; the accepted artifact's actual
-domain is still derived only from successfully computed observations. Each
+The checked-in classical-only v1 plan contains 400 attack observations in the
+Gaussian borderline shared by the v1 rules: dimensions 64, 80, 96, and 128;
+moduli 32 through 512; standard deviations 2.5 through 4; and both supported
+secret families. Migrated BabyBear and Primus parameters remain regression
+fixtures for deterministic applicability exclusion instead of expensive model
+labels because they are far outside the reviewed slow-attack domain. The
+accepted artifact's actual domain is derived only from successfully computed
+observations. An estimator infinity is stored as the terminal, auditable
+`no_finite_estimate` outcome and is never used as a training label. Each
 observation may run for up to 3,600 seconds, so collection can take a long
 time. Re-running the same command resumes completed observations. Transient
-collection failures and timeouts remain eligible for retry; computed and
-definitively unsupported rows are skipped.
+collection failures and timeouts remain eligible for retry; computed,
+no-finite, and definitively unsupported rows are skipped.
 
 Do not mix observation files from different estimator provenance. The model
 builder rejects a mixed dataset.
@@ -66,7 +80,7 @@ model. Quantum (`LaaMosPol14`) calibration is intentionally deferred.
 Build the candidate artifact with the same one-shot image:
 
 ```bash
-docker compose --profile calibration run --rm calibration build \
+docker compose -f compose.yaml -f compose.calibration.yaml run --rm calibration build \
   --input /calibration/output/slow-attacks-v1.jsonl \
   --output /calibration/output/slow-attacks-v1.model.json \
   --model-id slow-attacks-v1 \
@@ -88,16 +102,19 @@ disabled; an invalid or mismatched artifact fails closed.
 
 ## Runtime policy
 
-- `rough`: run fast attacks, then fill covered slow attacks from the calibrated
-  model. Uncovered attacks remain policy-skipped.
-- `normal`: prefer computed cache and real estimator results. `arora_gb` and
-  `bkw` run as separate plans with separate timers. At its decision time, an
-  attack is stopped only when its conservative approximation is at least
-  `required_security_bits + stop_margin_bits`. Approximation may also replace a
-  slow timeout or unsupported worker outcome when it is inside the calibrated
-  domain.
+- `rough`: run fast attacks, record deterministic applicability exclusions,
+  then fill covered borderline slow attacks from the calibrated model.
+- `normal`: prefer computed cache and real estimator results. Inapplicable
+  attacks become `policy_skipped`; applicable attacks run. Before creating a
+  borderline `arora_gb` or `bkw` plan, skip it only when its conservative
+  approximation is at least `required_security_bits + stop_margin_bits`.
+  Approximation may also replace a
+  slow timeout, no-finite estimator result, or unsupported worker outcome when
+  it is inside the calibrated domain.
 - Real computed outcomes always take precedence. Approximation never enters the
-  immutable computed cache and never makes a report `complete=true`.
+  immutable estimator-result cache and never makes a report `complete=true`.
+  A `no_finite_estimate` outcome is a completed estimator evaluation, displays
+  as `∞`, and is cached, but it does not contribute a numeric security bit.
 
 ## Verification state
 

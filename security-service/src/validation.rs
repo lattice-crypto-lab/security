@@ -131,14 +131,18 @@ impl Validate for SecurityReportFile {
                 && expected
                     .iter()
                     .all(|attack| report.attacks.iter().any(|result| result.attack == *attack))
-                && report
-                    .attacks
-                    .iter()
-                    .all(|result| matches!(result.outcome, AttackOutcome::Computed { .. }));
+                && report.attacks.iter().all(|result| {
+                    matches!(
+                        result.outcome,
+                        AttackOutcome::Computed { .. }
+                            | AttackOutcome::NoFiniteEstimate { .. }
+                            | AttackOutcome::PolicySkipped { .. }
+                    )
+                });
             if report.summary.complete != complete {
                 return Err(ValidationError::new(
                     format!("reports[{index}].summary.complete"),
-                    "complete must match full computed coverage of the fixed attack set",
+                    "complete must match computed, no-finite, or policy-excluded coverage of the fixed attack set",
                 ));
             }
             if report.summary.fast_estimate && report.summary.complete {
@@ -188,14 +192,6 @@ impl Validate for EstimateRequest {
             ));
         }
         if let Some(policy) = &self.slow_attack_policy {
-            if policy.decision_after_seconds == 0
-                || policy.decision_after_seconds >= self.timeout_seconds
-            {
-                return Err(ValidationError::new(
-                    "slow_attack_policy.decision_after_seconds",
-                    "decision time must be positive and less than the run timeout",
-                ));
-            }
             if !policy.required_security_bits.is_positive() {
                 return Err(ValidationError::new(
                     "slow_attack_policy.required_security_bits",

@@ -3,15 +3,16 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::{
-    AnalysisModel, ApproximationEngine, Attack, AttackCacheIdentity, AttackOutcome, AttackResult,
-    EstimateMode, EstimateRequest, EstimatorProblem, ExactDecimal, ParameterCase, Provenance,
-    SecurityReportEntry, SecurityReportFile, SecuritySummary, Validate, analysis_model_for,
-    attacks_for_problem, canonical_json,
+    AnalysisModel, ApplicabilityLevel, ApproximationEngine, Attack, AttackCacheIdentity,
+    AttackOutcome, AttackResult, EstimateMode, EstimateRequest, EstimatorProblem, ExactDecimal,
+    ParameterCase, Provenance, SLOW_ATTACK_APPLICABILITY_RULE_VERSION, SecurityReportEntry,
+    SecurityReportFile, SecuritySummary, Validate, analysis_model_for, attacks_for_problem,
+    canonical_json,
     database::{Database, JobWork},
     error::ServiceError,
     fast_attacks_for_problem,
     service::{BatchSnapshot, MAX_QUEUED_JOBS, RunState, now},
-    slow_attacks_for_problem, stable_hash,
+    slow_attack_applicability, slow_attacks_for_problem, stable_hash,
     upstream::{EstimatorClient, Metadata, ResultRole, WorkerOutcome, WorkerRequest},
 };
 
@@ -37,14 +38,12 @@ struct Runner {
 
 enum WorkerControl {
     Completed,
-    ApproximationCutoff,
     Cancelled,
     TimedOut,
 }
 
 struct PlanOptions {
     targets: Vec<Attack>,
-    cutoff_after_seconds: Option<u64>,
     deadline: tokio::time::Instant,
 }
 
@@ -212,9 +211,27 @@ impl Runner {
             };
             for attack in requested {
                 let key = context.cache_identity(*attack).hash();
-                if self.database.cached_outcome(&key).await?.is_none() {
-                    return Ok(false);
+                if self.database.cached_outcome(&key).await?.is_some() {
+                    continue;
                 }
+                if request.mode == EstimateMode::Normal
+                    && slow_attacks_for_problem(&case.problem).contains(attack)
+                {
+                    let applicability = context.applicability(*attack)?;
+                    if applicability.level == ApplicabilityLevel::Inapplicable {
+                        continue;
+                    }
+                    if applicability.level == ApplicabilityLevel::Applicable {
+                        return Ok(false);
+                    }
+                    let policy = request.slow_attack_policy.as_ref().ok_or_else(|| {
+                        ServiceError::Internal("missing validated slow attack policy".to_owned())
+                    })?;
+                    if self.preflight_allows_skip(&context, *attack, policy)? {
+                        continue;
+                    }
+                }
+                return Ok(false);
             }
         }
         Ok(true)
@@ -242,6 +259,13 @@ impl Runner {
                 );
             }
         }
+        let cached_slow = slow_attacks_for_problem(&work.case.problem)
+            .iter()
+            .copied()
+            .filter(|attack| results.contains_key(attack))
+            .collect::<Vec<_>>();
+        self.apply_approximations(&context, &cached_slow, &mut results)
+            .await?;
 
         let missing_fast = fast_attacks_for_problem(&work.case.problem)
             .iter()
@@ -255,7 +279,6 @@ impl Runner {
                     &context,
                     PlanOptions {
                         targets: missing_fast.clone(),
-                        cutoff_after_seconds: None,
                         deadline,
                     },
                     cancellation,
@@ -269,7 +292,7 @@ impl Runner {
                 WorkerControl::TimedOut => {
                     return Ok(self.timed_out_completion(work, &context, results));
                 }
-                WorkerControl::Completed | WorkerControl::ApproximationCutoff => {}
+                WorkerControl::Completed => {}
             }
         }
 
@@ -279,10 +302,11 @@ impl Runner {
                 .copied()
                 .filter(|attack| !results.contains_key(attack))
                 .collect::<Vec<_>>();
-            let fast_estimate = !missing_slow.is_empty();
-            self.apply_approximations(&context, &missing_slow, &mut results)
+            let approximation_candidates =
+                self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
+            self.apply_approximations(&context, &approximation_candidates, &mut results)
                 .await?;
-            for attack in missing_slow {
+            for attack in approximation_candidates {
                 results.entry(attack).or_insert_with(|| AttackResult {
                     attack,
                     cached: false,
@@ -294,7 +318,7 @@ impl Runner {
                     },
                 });
             }
-            let entry = self.report_entry(work, &context, results, fast_estimate);
+            let entry = self.report_entry(work, &context, results, true);
             let state = if entry.summary.complete {
                 RunState::Completed { finished_at: now() }
             } else {
@@ -308,21 +332,24 @@ impl Runner {
             .copied()
             .filter(|attack| !results.contains_key(attack))
             .collect::<Vec<_>>();
+        let missing_slow = self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
         let mut fast_estimate = false;
         for (index, attack) in missing_slow.iter().copied().enumerate() {
             let policy = work.request.slow_attack_policy.as_ref().ok_or_else(|| {
                 ServiceError::Internal("missing validated slow attack policy".to_owned())
             })?;
-            let cutoff_after_seconds = self
-                .approximation_allows_cutoff(&context, attack, policy)?
-                .then_some(policy.decision_after_seconds);
+            if self.preflight_allows_skip(&context, attack, policy)? {
+                fast_estimate = true;
+                self.apply_approximations(&context, &[attack], &mut results)
+                    .await?;
+                continue;
+            }
             match self
                 .run_plan(
                     work,
                     &context,
                     PlanOptions {
                         targets: vec![attack],
-                        cutoff_after_seconds,
                         deadline,
                     },
                     cancellation,
@@ -330,18 +357,6 @@ impl Runner {
                 )
                 .await?
             {
-                WorkerControl::ApproximationCutoff => {
-                    fast_estimate = true;
-                    self.apply_approximations(&context, &[attack], &mut results)
-                        .await?;
-                    results.entry(attack).or_insert_with(|| AttackResult {
-                        attack,
-                        cached: false,
-                        outcome: AttackOutcome::Skipped {
-                            reason: "calibrated approximation cutoff produced no result".to_owned(),
-                        },
-                    });
-                }
                 WorkerControl::Cancelled => {
                     return Ok(self.cancelled_completion(work, &context, results));
                 }
@@ -368,12 +383,16 @@ impl Runner {
         Ok((state, Some(entry)))
     }
 
-    fn approximation_allows_cutoff(
+    fn preflight_allows_skip(
         &self,
         context: &CaseContext,
         attack: Attack,
         policy: &crate::SlowAttackPolicy,
     ) -> Result<bool, ServiceError> {
+        let applicability = context.applicability(attack)?;
+        if applicability.level != ApplicabilityLevel::Borderline {
+            return Ok(false);
+        }
         let identity = context.cache_identity(attack);
         let Some(prediction) = self.approximation.predict(&identity)? else {
             return Ok(false);
@@ -384,6 +403,35 @@ impl Runner {
         Ok(approximation_meets_stop_threshold(&security_bits, policy))
     }
 
+    fn apply_applicability_skips(
+        &self,
+        context: &CaseContext,
+        attacks: &[Attack],
+        results: &mut BTreeMap<Attack, AttackResult>,
+    ) -> Result<Vec<Attack>, ServiceError> {
+        let mut candidates = Vec::with_capacity(attacks.len());
+        for attack in attacks {
+            let applicability = context.applicability(*attack)?;
+            if applicability.level == ApplicabilityLevel::Inapplicable {
+                results.insert(
+                    *attack,
+                    AttackResult {
+                        attack: *attack,
+                        cached: false,
+                        outcome: AttackOutcome::PolicySkipped {
+                            code: applicability.code.to_owned(),
+                            reason: applicability.reason,
+                            applicability_rule_version: SLOW_ATTACK_APPLICABILITY_RULE_VERSION,
+                        },
+                    },
+                );
+            } else {
+                candidates.push(*attack);
+            }
+        }
+        Ok(candidates)
+    }
+
     async fn apply_approximations(
         &self,
         context: &CaseContext,
@@ -391,10 +439,14 @@ impl Runner {
         results: &mut BTreeMap<Attack, AttackResult>,
     ) -> Result<(), ServiceError> {
         for attack in attacks {
+            if context.applicability(*attack)?.level != ApplicabilityLevel::Borderline {
+                continue;
+            }
             let replaceable = results.get(attack).is_none_or(|result| {
                 matches!(
                     result.outcome,
-                    AttackOutcome::Unsupported { .. }
+                    AttackOutcome::NoFiniteEstimate { .. }
+                        | AttackOutcome::Unsupported { .. }
                         | AttackOutcome::Timeout { .. }
                         | AttackOutcome::Skipped { .. }
                 )
@@ -403,10 +455,14 @@ impl Runner {
                 continue;
             }
             let identity = context.cache_identity(*attack);
-            let Some(cache_key) = self.approximation.cache_key(&identity) else {
+            let Some(prediction) = self.approximation.predict(&identity)? else {
                 continue;
             };
-            if let Some(cached) = self.database.cached_approximation(&cache_key).await? {
+            if let Some(cached) = self
+                .database
+                .cached_approximation(&prediction.cache_key)
+                .await?
+            {
                 results.insert(
                     *attack,
                     AttackResult {
@@ -417,9 +473,6 @@ impl Runner {
                 );
                 continue;
             }
-            let Some(prediction) = self.approximation.predict(&identity)? else {
-                continue;
-            };
             self.database
                 .put_cached_approximation(
                     prediction.cache_key.clone(),
@@ -448,11 +501,7 @@ impl Runner {
         cancellation: &Notify,
         results: &mut BTreeMap<Attack, AttackResult>,
     ) -> Result<WorkerControl, ServiceError> {
-        let PlanOptions {
-            targets,
-            cutoff_after_seconds,
-            deadline,
-        } = options;
+        let PlanOptions { targets, deadline } = options;
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             insert_timeouts(&targets, work.request.timeout_seconds, results);
@@ -470,29 +519,14 @@ impl Runner {
         let cancel = wait_for_cancel(&self.database, &work.batch_id, &work.job_id, cancellation);
         tokio::pin!(cancel);
 
-        let response = if let Some(cutoff_after_seconds) = cutoff_after_seconds {
-            tokio::select! {
-                biased;
-                response = &mut worker => response,
-                () = tokio::time::sleep(Duration::from_secs(cutoff_after_seconds)) => {
-                    return Ok(WorkerControl::ApproximationCutoff);
-                }
-                () = tokio::time::sleep_until(deadline) => {
-                    insert_timeouts(&targets, work.request.timeout_seconds, results);
-                    return Ok(WorkerControl::TimedOut);
-                }
-                () = &mut cancel => return Ok(WorkerControl::Cancelled),
+        let response = tokio::select! {
+            biased;
+            response = &mut worker => response,
+            () = tokio::time::sleep_until(deadline) => {
+                insert_timeouts(&targets, work.request.timeout_seconds, results);
+                return Ok(WorkerControl::TimedOut);
             }
-        } else {
-            tokio::select! {
-                biased;
-                response = &mut worker => response,
-                () = tokio::time::sleep_until(deadline) => {
-                    insert_timeouts(&targets, work.request.timeout_seconds, results);
-                    return Ok(WorkerControl::TimedOut);
-                }
-                () = &mut cancel => return Ok(WorkerControl::Cancelled),
-            }
+            () = &mut cancel => return Ok(WorkerControl::Cancelled),
         };
         let response = match response {
             Ok(response) => response,
@@ -526,6 +560,15 @@ impl Runner {
                     duration_ms: response.duration_ms,
                     metrics,
                 },
+                WorkerOutcome::NoFiniteEstimate {
+                    code,
+                    reason,
+                    raw_result,
+                } => AttackOutcome::NoFiniteEstimate {
+                    code,
+                    reason,
+                    raw_result,
+                },
                 WorkerOutcome::Unsupported { code, reason } => {
                     AttackOutcome::Unsupported { code, reason }
                 }
@@ -542,7 +585,10 @@ impl Runner {
                     }
                 }
             };
-            if matches!(outcome, AttackOutcome::Computed { .. }) {
+            if matches!(
+                outcome,
+                AttackOutcome::Computed { .. } | AttackOutcome::NoFiniteEstimate { .. }
+            ) {
                 let identity = context.cache_identity(execution.attack);
                 self.database
                     .put_cached_outcome(
@@ -638,16 +684,32 @@ impl Runner {
         let approximate = ordered
             .iter()
             .any(|result| matches!(result.outcome, AttackOutcome::Approximate { .. }));
-        let complete = ordered.len() == attacks_for_problem(&work.case.problem).len()
-            && ordered
-                .iter()
-                .all(|result| matches!(result.outcome, AttackOutcome::Computed { .. }));
-        let request_hash = stable_hash(
-            &attacks_for_problem(&work.case.problem)
+        let policy_skipped = ordered
+            .iter()
+            .any(|result| matches!(result.outcome, AttackOutcome::PolicySkipped { .. }));
+        let complete = work.request.mode == EstimateMode::Normal
+            && ordered.len() == attacks_for_problem(&work.case.problem).len()
+            && ordered.iter().all(|result| {
+                matches!(
+                    result.outcome,
+                    AttackOutcome::Computed { .. }
+                        | AttackOutcome::NoFiniteEstimate { .. }
+                        | AttackOutcome::PolicySkipped { .. }
+                )
+            });
+        let request_hash = stable_hash(&(
+            SLOW_ATTACK_APPLICABILITY_RULE_VERSION,
+            attacks_for_problem(&work.case.problem)
                 .iter()
                 .map(|attack| context.cache_identity(*attack))
                 .collect::<Vec<_>>(),
-        );
+        ));
+        let mut warnings = analysis_warnings(&context.analysis_model);
+        if policy_skipped {
+            warnings.push(format!(
+                "slow attacks outside the reviewed applicability domain were excluded by applicability rules v{SLOW_ATTACK_APPLICABILITY_RULE_VERSION}; completeness is relative to that policy"
+            ));
+        }
         SecurityReportEntry {
             case: work.case.clone(),
             request_hash,
@@ -666,7 +728,7 @@ impl Runner {
                 complete,
                 fast_estimate: fast_estimate || approximate,
                 approximate,
-                warnings: analysis_warnings(&context.analysis_model),
+                warnings,
             },
             attacks: ordered,
         }
@@ -771,6 +833,15 @@ impl CaseContext {
             self.estimator_context.clone(),
         )
     }
+
+    fn applicability(
+        &self,
+        attack: Attack,
+    ) -> Result<crate::SlowAttackApplicability, ServiceError> {
+        slow_attack_applicability(&self.estimator_problem, attack).ok_or_else(|| {
+            ServiceError::Internal("missing applicability rule for adaptive slow attack".to_owned())
+        })
+    }
 }
 
 async fn wait_for_cancel(database: &Database, batch_id: &str, job_id: &str, notify: &Notify) {
@@ -829,9 +900,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approximation_cutoff_includes_the_configured_margin() {
+    fn approximation_preflight_includes_the_configured_margin() {
         let policy = crate::SlowAttackPolicy {
-            decision_after_seconds: 300,
             required_security_bits: ExactDecimal::new("128").unwrap(),
             stop_margin_bits: ExactDecimal::new("16").unwrap(),
         };

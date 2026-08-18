@@ -234,7 +234,7 @@ fn sparse_ternary_rejects_obsolete_fixed_counts() {
 }
 
 #[test]
-fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
+fn lwe_run_requires_explicit_slow_attack_preflight_policy() {
     let parameter_set: ParameterSetFile = serde_json::from_str(
         &fs::read_to_string(
             repository_root().join("fixtures/schema/valid/parameter-set-minimal.json"),
@@ -251,7 +251,6 @@ fn lwe_run_requires_explicit_adaptive_slow_attack_policy() {
     assert_eq!(request.validate().unwrap_err().path, "slow_attack_policy");
 
     request.slow_attack_policy = Some(SlowAttackPolicy {
-        decision_after_seconds: 300,
         required_security_bits: decimal("128"),
         stop_margin_bits: decimal("16"),
     });

@@ -128,7 +128,45 @@ function refreshQuickCaseNumbers() {
   });
 }
 
-function addQuickCase() {
+function setQuickValue(row, name, value) {
+  const field = quickField(row, name);
+  if (field && value !== undefined && value !== null) field.value = String(value);
+}
+
+function populateDistribution(row, prefix, distribution) {
+  if (!distribution) return;
+  setQuickValue(row, `${prefix}_kind`, distribution.kind);
+  setQuickValue(row, `${prefix}_hamming_weight`, distribution.hamming_weight);
+  setQuickValue(row, `${prefix}_positive_weight`, distribution.positive_weight);
+  setQuickValue(row, `${prefix}_negative_weight`, distribution.negative_weight);
+  setQuickValue(row, `${prefix}_standard_deviation`, distribution.standard_deviation);
+  setQuickValue(row, `${prefix}_eta`, distribution.eta);
+  setQuickValue(row, `${prefix}_lower`, distribution.lower);
+  setQuickValue(row, `${prefix}_upper`, distribution.upper);
+}
+
+function populateQuickCase(row, value) {
+  const problem = value.problem;
+  row.dataset.originalCase = JSON.stringify(value);
+  setQuickValue(row, "id", value.id);
+  setQuickValue(row, "name", value.name);
+  setQuickValue(row, "problem_kind", problem.kind);
+  setQuickValue(row, "security_model", value.analysis?.security_model || "classical");
+  setQuickValue(row, "dimension", problem.dimension);
+  setQuickValue(row, "ring_degree", problem.negacyclic_ring?.polynomial_degree);
+  setQuickValue(row, "glwe_dimension", problem.kind === "glwe" ? problem.dimension : undefined);
+  setQuickValue(row, "modulus", problem.modulus || problem.negacyclic_ring?.ciphertext_modulus);
+  setQuickValue(row, "samples_kind", problem.samples?.kind);
+  setQuickValue(row, "sample_count", problem.samples?.count);
+  setQuickValue(row, "ntru_structure", problem.structure);
+  setQuickValue(row, "columns", problem.columns);
+  setQuickValue(row, "length_bound", problem.length_bound);
+  setQuickValue(row, "norm", problem.norm);
+  populateDistribution(row, "secret", problem.secret);
+  populateDistribution(row, "error", problem.error);
+}
+
+function addQuickCase(initialCase = null) {
   if (!quickCaseTemplate || !quickCaseList) return;
   const count = quickCaseList.querySelectorAll("[data-quick-case]").length;
   if (count >= 500) {
@@ -144,6 +182,7 @@ function addQuickCase() {
   const row = fragment.querySelector("[data-quick-case]");
   quickField(row, "id").value = `case-${nextId}`;
   quickField(row, "name").value = `参数 ${nextId}`;
+  if (initialCase) populateQuickCase(row, initialCase);
   quickCaseList.appendChild(fragment);
   updateQuickCase(row);
   refreshQuickCaseNumbers();
@@ -259,11 +298,18 @@ function quickCaseValue(row) {
     };
   }
 
-  const analysis = { security_model: quickField(row, "security_model").value };
+  const original = row.dataset.originalCase ? JSON.parse(row.dataset.originalCase) : {};
+  const analysis = {
+    ...(original.analysis || {}),
+    security_model: quickField(row, "security_model").value,
+  };
   if (kind === "rlwe" || kind === "glwe") {
     analysis.reduction_model = "coefficient_embedding_v1";
+  } else {
+    delete analysis.reduction_model;
   }
   return {
+    ...original,
     id: quickField(row, "id").value,
     name: quickField(row, "name").value,
     problem,
@@ -321,5 +367,16 @@ document.addEventListener("submit", (event) => {
   form.querySelector("[data-quick-cases-json]").value = JSON.stringify(cases);
 });
 
-if (quickCaseTemplate && quickCaseList) addQuickCase();
+if (quickCaseTemplate && quickCaseList) {
+  const initial = document.querySelector("[data-initial-cases]");
+  if (initial) {
+    try {
+      JSON.parse(initial.value).forEach((item) => addQuickCase(item));
+    } catch (error) {
+      window.alert(`无法载入方案参数：${error.message}`);
+    }
+  } else {
+    addQuickCase();
+  }
+}
 updateSlowPolicy();

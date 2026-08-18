@@ -6,7 +6,12 @@ from types import SimpleNamespace
 import pytest
 from test_models import request_model
 
-from estimator_api.adapter import _canonical_decimal, _distribution, _run_estimator
+from estimator_api.adapter import (
+    _canonical_decimal,
+    _distribution,
+    _normalize_attack,
+    _run_estimator,
+)
 from estimator_api.models import (
     Attack,
     CenteredBinomial,
@@ -141,3 +146,19 @@ def test_adaptive_slow_plan_remains_callable() -> None:
         "dual_hybrid",
         "usvp",
     )
+
+
+def test_infinite_rop_is_a_terminal_auditable_estimate() -> None:
+    execution = _normalize_attack(
+        Attack.DUAL_HYBRID,
+        [Attack.DUAL_HYBRID],
+        {"dual_hybrid": {"rop": float("inf"), "tag": "test"}},
+        {"stderr": "estimator diagnostic"},
+    )
+
+    assert execution.outcome.kind == "no_finite_estimate"
+    assert execution.outcome.code == "no_finite_rop"
+    assert execution.outcome.raw_result == {
+        "result": "{'rop': inf, 'tag': 'test'}",
+        "stderr": "estimator diagnostic",
+    }

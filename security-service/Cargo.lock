@@ -667,7 +667,6 @@ dependencies = [
  "askama",
  "axum",
  "bigdecimal",
- "http",
  "num-bigint 0.5.1",
  "num-traits",
  "reqwest",

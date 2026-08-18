@@ -215,12 +215,6 @@ impl ApproximationEngine {
             .unwrap_or("parameters are outside the calibrated model domain")
     }
 
-    pub fn cache_key(&self, identity: &AttackCacheIdentity) -> Option<String> {
-        self.model_hash
-            .as_ref()
-            .map(|model_hash| stable_hash(&(identity, model_hash)))
-    }
-
     pub fn predict(
         &self,
         identity: &AttackCacheIdentity,
@@ -575,7 +569,7 @@ mod tests {
         EstimatorContext {
             estimator_commit: "estimator-commit".to_owned(),
             sage_version: "10.9".to_owned(),
-            adapter_version: "1".to_owned(),
+            adapter_version: "2".to_owned(),
             worker_image: "worker@sha256:test".to_owned(),
         }
     }
@@ -590,7 +584,7 @@ mod tests {
             provenance: CalibrationProvenance {
                 estimator_commit: "estimator-commit".to_owned(),
                 sage_version: "10.9".to_owned(),
-                adapter_version: "1".to_owned(),
+                adapter_version: "2".to_owned(),
                 worker_image: "worker@sha256:test".to_owned(),
                 platform: "linux/amd64".to_owned(),
                 dataset_hash: format!("sha256:{}", "d".repeat(64)),
