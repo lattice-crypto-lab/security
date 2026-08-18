@@ -1,9 +1,10 @@
-<tr id="batch-{{ batch.id }}"{% if !batch.terminal %} hx-get="/ui/batches/{{ batch.id }}/row" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-  <td><input type="checkbox" value="{{ batch.id }}" data-batch-select aria-label="选择 {{ batch.id }}"></td>
-  <td><span class="mono short-id" title="{{ batch.id }}">{{ batch.id }}</span><small>rev {{ batch.revision }}</small></td>
-  <td><span class="state state-{{ batch.state }}">{{ batch.state }}</span></td>
-  <td><strong>{{ batch.security }}</strong></td>
-  <td>{{ batch.report_count }} cases</td>
-  <td><small>{{ batch.updated_at }}</small></td>
-  <td><button type="button" class="link-button" hx-get="/ui/batches/{{ batch.id }}/detail" hx-target="#detail-panel" hx-swap="innerHTML">详情</button></td>
-</tr>
+<article class="batch-list-item" id="batch-{{ batch.id }}"{% if !batch.terminal %} hx-get="/ui/batches/{{ batch.id }}/row" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="batch-list-heading">
+    <label class="batch-check"><input type="checkbox" value="{{ batch.id }}" data-batch-select aria-label="选择 {{ batch.id }}"></label>
+  </div>
+  <button type="button" class="batch-detail-button" data-batch-detail hx-get="/ui/batches/{{ batch.id }}/detail" hx-target="#detail-panel" hx-swap="innerHTML">
+    <span class="batch-title-row"><span class="mono short-id" title="{{ batch.id }}">{{ batch.id }}</span><span class="state state-{{ batch.state }}">{{ batch.state }}</span></span>
+    <span class="batch-list-metrics"><strong>{{ batch.security }} bit</strong><span>{{ batch.report_count }} cases</span></span>
+    <small>rev {{ batch.revision }} · {{ batch.updated_at }}</small>
+  </button>
+</article>

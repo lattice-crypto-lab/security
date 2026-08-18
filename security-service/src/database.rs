@@ -645,6 +645,31 @@ impl Database {
         }).await
     }
 
+    pub async fn delete_parameter_set(&self, external_id: &str) -> DbResult<()> {
+        let external_id = external_id.to_owned();
+        self.call(move |connection| {
+            let transaction = connection.transaction().map_err(ServiceError::database)?;
+            let deleted = transaction
+                .execute(
+                    "DELETE FROM parameter_set_heads WHERE external_id=?1",
+                    [&external_id],
+                )
+                .map_err(ServiceError::database)?;
+            if deleted == 0 {
+                return Err(ServiceError::NotFound("parameter set not found".to_owned()));
+            }
+            transaction
+                .execute(
+                    "DELETE FROM parameter_sets WHERE external_id=?1",
+                    [&external_id],
+                )
+                .map_err(ServiceError::database)?;
+            transaction.commit().map_err(ServiceError::database)?;
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn list_parameter_sets(&self) -> DbResult<Vec<ParameterSetSummary>> {
         self.call(|connection| {
             let mut statement = connection

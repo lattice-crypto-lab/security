@@ -38,6 +38,10 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/ui/parameter-sets/{parameter_set_id}/run",
             post(run_parameter_set),
         )
+        .route(
+            "/ui/parameter-sets/{parameter_set_id}/delete",
+            post(delete_parameter_set),
+        )
         .route("/ui/sweeps", post(create_sweep))
 }
 
@@ -46,6 +50,8 @@ pub fn routes() -> Router<Arc<AppState>> {
 struct DashboardTemplate {
     parameter_sets: Vec<UiParameterSet>,
     batches: Vec<UiBatch>,
+    active_tab: String,
+    initial_batch_id: String,
     message: String,
 }
 
@@ -189,6 +195,8 @@ struct UiCase {
 struct DashboardQuery {
     #[serde(default)]
     message: String,
+    #[serde(default)]
+    tab: String,
 }
 
 async fn dashboard(
@@ -202,16 +210,26 @@ async fn dashboard(
         .into_iter()
         .map(Into::into)
         .collect();
-    let batches = state
+    let batches: Vec<UiBatch> = state
         .database
         .list_batches(100, state.poll_after_seconds)
         .await?
         .into_iter()
         .map(Into::into)
         .collect();
+    let initial_batch_id = batches
+        .first()
+        .map(|batch: &UiBatch| batch.id.clone())
+        .unwrap_or_default();
+    let active_tab = match query.tab.as_str() {
+        "schemes" | "runs" | "sweep" => query.tab,
+        _ => "estimate".to_owned(),
+    };
     render(DashboardTemplate {
         parameter_sets,
         batches,
+        active_tab,
+        initial_batch_id,
         message: query.message,
     })
 }
@@ -394,9 +412,9 @@ async fn create_quick_estimate(
         .submit(request, state.poll_after_seconds)
         .await?;
     let location = if fully_cached {
-        "/?message=Security+estimate+completed+from+cache"
+        "/?tab=runs&message=Security+estimate+completed+from+cache"
     } else {
-        "/?message=Security+estimate+queued"
+        "/?tab=runs&message=Security+estimate+queued"
     };
     redirect(&headers, location)
 }
@@ -429,7 +447,7 @@ async fn import_parameter_set(
             .submit(request, state.poll_after_seconds)
             .await?;
     }
-    redirect(&headers, "/?message=Parameter+set+imported")
+    redirect(&headers, "/?tab=schemes&message=Parameter+set+imported")
 }
 
 #[derive(Deserialize)]
@@ -480,7 +498,19 @@ async fn run_parameter_set(
         .scheduler
         .submit(request, state.poll_after_seconds)
         .await?;
-    redirect(&headers, "/?message=Run+queued")
+    redirect(&headers, "/?tab=runs&message=Run+queued")
+}
+
+async fn delete_parameter_set(
+    State(state): State<Arc<AppState>>,
+    Path(parameter_set_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ServiceError> {
+    state
+        .database
+        .delete_parameter_set(&parameter_set_id)
+        .await?;
+    redirect(&headers, "/?tab=schemes&message=Parameter+set+deleted")
 }
 
 #[derive(Deserialize)]
@@ -499,7 +529,7 @@ async fn bulk_cancel(
             .cancel(&id, state.poll_after_seconds)
             .await?;
     }
-    redirect(&headers, "/?message=Selected+runs+cancelled")
+    redirect(&headers, "/?tab=runs&message=Selected+runs+cancelled")
 }
 
 async fn bulk_rerun(
@@ -514,7 +544,7 @@ async fn bulk_rerun(
             .submit(request, state.poll_after_seconds)
             .await?;
     }
-    redirect(&headers, "/?message=Selected+runs+queued")
+    redirect(&headers, "/?tab=runs&message=Selected+runs+queued")
 }
 
 async fn bulk_export(
@@ -633,7 +663,7 @@ async fn create_sweep(
             )
             .await?;
     }
-    redirect(&headers, "/?message=Sweep+queued")
+    redirect(&headers, "/?tab=runs&message=Sweep+queued")
 }
 
 async fn login_page() -> Result<Html<String>, ServiceError> {

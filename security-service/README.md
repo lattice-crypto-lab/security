@@ -30,11 +30,20 @@ attack, and calls the internal estimator adapter.
 
 ## Web UI
 
-`GET /` serves the Askama/HTMX workbench. It supports parameter-set import,
-case selection, direct multi-case parameter entry, batch filtering/sorting,
-attack details, polling, bulk cancel/rerun/export, and one-axis sweep creation.
-The JSON sweep API supports up to four Cartesian axes and 10,000 generated
-cases.
+`GET /` serves the Askama/HTMX workbench. Four tabs separate direct security
+estimation, the parameter-set library, run batches, and sweeps. The run view
+uses a master-detail layout with the batch list on the left and the selected
+report on the right. It supports parameter-set import/deletion, case selection,
+direct multi-case parameter entry, batch filtering/sorting, attack details,
+polling, bulk cancel/rerun/export, and one-axis sweep creation. The JSON sweep
+API supports up to four Cartesian axes and 10,000 generated cases.
+
+The import form explains both conflict policies inline. `reject` leaves the
+existing parameter set unchanged when its external ID already exists;
+`replace` atomically creates a new current version. Deleting a parameter set
+removes all of its library versions, but intentionally keeps historical batch
+requests, reports, and attack-cache entries because those records contain their
+own immutable case snapshots.
 
 The direct form has two execution modes. `rough` runs the fast attack set and
 records missing slow attacks as policy-skipped; `normal` also schedules
@@ -53,7 +62,8 @@ An estimate returns `202` when work was queued and `200` when every attack was
 already cached. Batch snapshots contain a monotonic revision, update time,
 polling hint, job IDs, and the report once available.
 
-The scheduler runs the six fast LWE attacks before the separate slow plan. If
+The normal-mode form explains the slow-attack decision rule inline. The
+scheduler runs the six fast LWE attacks before the separate slow plan. If
 all fast attacks computed and their minimum security estimate reaches the
 request threshold, an unfinished `arora_gb`/`bkw` plan is disconnected after
 the configured decision time. The Python adapter then terminates and reaps the

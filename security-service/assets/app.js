@@ -5,6 +5,43 @@ document.addEventListener("change", async (event) => {
   if (target) target.value = await input.files[0].text();
 });
 
+function selectWorkspace(target, updateUrl = true) {
+  const buttons = document.querySelectorAll("[data-tab-target]");
+  const panels = document.querySelectorAll("[data-workspace-panel]");
+  if (![...panels].some((panel) => panel.dataset.workspacePanel === target)) return;
+  buttons.forEach((button) => {
+    button.setAttribute("aria-selected", String(button.dataset.tabTarget === target));
+  });
+  panels.forEach((panel) => {
+    panel.hidden = panel.dataset.workspacePanel !== target;
+  });
+  if (updateUrl) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", target);
+    window.history.replaceState({}, "", url);
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-tab-target]");
+  if (tab) {
+    selectWorkspace(tab.dataset.tabTarget);
+    return;
+  }
+  const detail = event.target.closest("[data-batch-detail]");
+  if (detail) {
+    document.querySelectorAll(".batch-list-item.is-active").forEach((item) => {
+      item.classList.remove("is-active");
+    });
+    detail.closest(".batch-list-item")?.classList.add("is-active");
+  }
+});
+
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-confirm]");
+  if (form && !window.confirm(form.dataset.confirm)) event.preventDefault();
+});
+
 document.addEventListener("submit", (event) => {
   const form = event.target.closest("[data-collect-form]");
   if (!form) return;
@@ -18,6 +55,18 @@ document.addEventListener("submit", (event) => {
 
 const quickCaseTemplate = document.getElementById("quick-case-template");
 const quickCaseList = document.querySelector("[data-quick-case-list]");
+
+function updateSlowPolicy() {
+  const mode = document.querySelector("[data-estimate-mode]");
+  if (!mode) return;
+  const visible = mode.value === "normal";
+  document.querySelectorAll("[data-slow-policy]").forEach((section) => {
+    section.hidden = !visible;
+    section.querySelectorAll("input, select, textarea").forEach((control) => {
+      control.disabled = !visible;
+    });
+  });
+}
 
 function quickField(row, name) {
   return row.querySelector(`[data-field="${name}"]`);
@@ -232,6 +281,7 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-estimate-mode]")) updateSlowPolicy();
   const row = event.target.closest("[data-quick-case]");
   if (row) updateQuickCase(row);
 });
@@ -260,3 +310,4 @@ document.addEventListener("submit", (event) => {
 });
 
 if (quickCaseTemplate && quickCaseList) addQuickCase();
+updateSlowPolicy();

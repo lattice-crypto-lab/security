@@ -373,6 +373,17 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
     assert!(dashboard.1.contains("hx-get=\"/ui/batches\""));
     assert!(dashboard.1.contains("action=\"/ui/estimates\""));
     assert!(dashboard.1.contains("data-add-quick-case"));
+    assert!(dashboard.1.contains("data-workspace-tabs"));
+    assert!(dashboard.1.contains("冲突策略是什么意思？"));
+    assert!(dashboard.1.contains("历史批次和报告仍保留原始参数快照"));
+    assert!(dashboard.1.contains("慢攻击判断"));
+    assert!(dashboard.1.contains("id=\"batch-list\""));
+    assert!(dashboard.1.contains("id=\"detail-panel\""));
+    assert!(
+        dashboard
+            .1
+            .contains("/ui/parameter-sets/demo-scheme/delete")
+    );
 
     let detail = text_request(&harness.app, "GET", "/ui/parameter-sets/demo-scheme", None).await;
     assert_eq!(detail.0, StatusCode::OK);
@@ -399,6 +410,32 @@ async fn dashboard_renders_imported_sets_and_can_run_one_selected_case() {
             .cases
             .len(),
         1
+    );
+
+    let deleted = text_request(
+        &harness.app,
+        "POST",
+        "/ui/parameter-sets/demo-scheme/delete",
+        Some(""),
+    )
+    .await;
+    assert_eq!(deleted.0, StatusCode::SEE_OTHER);
+    assert!(
+        harness
+            .state
+            .database
+            .export_parameter_set("demo-scheme")
+            .await
+            .is_err()
+    );
+    assert!(
+        harness
+            .state
+            .database
+            .batch_request(&batches[0].batch_id)
+            .await
+            .is_ok(),
+        "deleting a parameter set must not remove historical batch snapshots"
     );
 }
 

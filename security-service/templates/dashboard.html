@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lattice Security</title>
-  <link rel="stylesheet" href="/assets/app.css?v=2">
+  <link rel="stylesheet" href="/assets/app.css?v=3">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
-  <script defer src="/assets/app.js?v=2"></script>
+  <script defer src="/assets/app.js?v=3"></script>
 </head>
 <body>
   <header class="topbar">
@@ -20,63 +20,62 @@
   <main>
     {% if !message.is_empty() %}<div class="notice">{{ message }}</div>{% endif %}
 
-    <section class="hero-grid">
-      <article class="panel intro">
-        <p class="eyebrow">SECURITY WORKBENCH</p>
-        <h2>把一组参数当作一个完整方案来评估。</h2>
-        <p>导入 parameter-set，选择 case，运行固定攻击集合。计算结果按攻击缓存，慢攻击会依据时间和安全阈值自适应终止。</p>
-        <div class="metric-row">
-          <div><strong>{{ parameter_sets.len() }}</strong><span>参数方案</span></div>
-          <div><strong>{{ batches.len() }}</strong><span>最近批次</span></div>
-        </div>
-      </article>
-
-      <article class="panel">
-        <div class="section-heading"><div><p class="eyebrow">IMPORT</p><h2>导入方案</h2></div></div>
-        <form method="post" action="/ui/import" class="stack">
-          <label class="file-drop">选择 JSON 文件
-            <input type="file" accept="application/json,.json" data-file-target="parameter-document">
-          </label>
-          <textarea id="parameter-document" name="document" rows="7" required placeholder="粘贴 lattice-security/parameter-set JSON"></textarea>
-          <div class="form-row">
-            <label>冲突策略<select name="conflict"><option value="reject">reject</option><option value="replace">replace</option></select></label>
-            <label class="check"><input type="checkbox" name="run_all" value="yes"> 导入后运行全部 case</label>
-          </div>
-          <div class="form-row compact">
-            <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
-            <label>慢攻击判断<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
-            <label>高安全阈值<input name="high_security_bits" value="128"></label>
-          </div>
-          <button class="primary" type="submit">导入方案</button>
-        </form>
-      </article>
+    <section class="overview-strip panel" aria-label="工作台概览">
+      <div><p class="eyebrow">SECURITY WORKBENCH</p><strong>格密码参数安全评估</strong><span>计算结果按攻击与 estimator 环境缓存。</span></div>
+      <div class="overview-metrics">
+        <span><strong>{{ parameter_sets.len() }}</strong> 个方案</span>
+        <span><strong>{{ batches.len() }}</strong> 个最近批次</span>
+      </div>
     </section>
 
-    <section class="panel section-panel" id="quick-estimate">
-      <div class="section-heading">
-        <div><p class="eyebrow">QUICK ESTIMATE</p><h2>安全估算</h2></div>
-        <span>最多 500 组参数</span>
-      </div>
-      <p class="muted">直接填写参数并一次提交多组 case。粗略测试只运行快速攻击；正常测试复用已有快速结果，再执行完整攻击集。</p>
-      <form method="post" action="/ui/estimates" class="stack" data-quick-estimate-form>
-        <div class="form-row estimate-policy">
-          <label>测试方式
-            <select name="mode">
-              <option value="rough">rough · 仅快速攻击</option>
-              <option value="normal" selected>normal · 完整攻击集</option>
-            </select>
-          </label>
-          <label>总超时（秒）<input name="timeout_seconds" type="number" min="2" max="7200" value="3600" required></label>
-          <label>慢攻击判断（秒）<input name="decision_after_seconds" type="number" min="1" max="7199" value="60" required></label>
-          <label>高安全阈值（bit）<input name="high_security_bits" value="128" inputmode="decimal" required></label>
+    <nav class="workspace-tabs" aria-label="工作台功能" data-workspace-tabs>
+      <button type="button" data-tab-target="estimate" aria-controls="workspace-estimate" aria-selected="{% if active_tab == "estimate" %}true{% else %}false{% endif %}">安全估算</button>
+      <button type="button" data-tab-target="schemes" aria-controls="workspace-schemes" aria-selected="{% if active_tab == "schemes" %}true{% else %}false{% endif %}">方案库</button>
+      <button type="button" data-tab-target="runs" aria-controls="workspace-runs" aria-selected="{% if active_tab == "runs" %}true{% else %}false{% endif %}">运行批次</button>
+      <button type="button" data-tab-target="sweep" aria-controls="workspace-sweep" aria-selected="{% if active_tab == "sweep" %}true{% else %}false{% endif %}">参数扫描</button>
+    </nav>
+
+    <section id="workspace-estimate" class="workspace-panel" data-workspace-panel="estimate"{% if active_tab != "estimate" %} hidden{% endif %}>
+      <article class="panel section-panel" id="quick-estimate">
+        <div class="section-heading">
+          <div><p class="eyebrow">QUICK ESTIMATE</p><h2>安全估算</h2></div>
+          <span>最多 500 组参数</span>
         </div>
-        <div class="quick-case-list" data-quick-case-list></div>
-        <input type="hidden" name="cases_json" data-quick-cases-json>
-        <div class="quick-actions">
-          <button type="button" data-add-quick-case>＋ 添加一组参数</button>
-          <button class="primary" type="submit">开始安全估算</button>
-        </div>
-      </form>
+        <p class="muted">直接填写一组或多组参数。每组参数生成一个 case，并在同一个 batch 中运行。</p>
+        <form method="post" action="/ui/estimates" class="stack" data-quick-estimate-form>
+          <div class="form-row estimate-policy">
+            <label>测试方式
+              <select name="mode" data-estimate-mode>
+                <option value="rough">粗略测试 · 仅快速攻击</option>
+                <option value="normal" selected>正常测试 · 完整攻击集</option>
+              </select>
+              <small class="field-note">粗略测试跳过 arora_gb 和 bkw；正常测试会复用已有快速结果并继续慢攻击。</small>
+            </label>
+            <label>总超时（秒）
+              <input name="timeout_seconds" type="number" min="2" max="7200" value="3600" required>
+              <small class="field-note">单个 case 的最长执行时间。</small>
+            </label>
+            <label data-slow-policy>慢攻击判断时间（秒）
+              <input name="decision_after_seconds" type="number" min="1" max="7199" value="60" required>
+              <small class="field-note">慢攻击运行到这个时间后，服务判断是否值得继续等待。</small>
+            </label>
+            <label data-slow-policy>高安全阈值（bit）
+              <input name="high_security_bits" value="128" inputmode="decimal" required>
+              <small class="field-note">快速结果不低于此值时，服务可提前停止仍未完成的慢攻击。</small>
+            </label>
+          </div>
+          <div class="policy-explainer" data-slow-policy>
+            <strong>慢攻击判断是什么意思？</strong>
+            <p>正常测试先完成快速攻击，同时运行 arora_gb 和 bkw。到达决策时间后，如果当前最低安全 bit 已达到高安全阈值，就终止尚未完成的慢攻击；低于阈值则继续等待，直到完成或达到总超时。</p>
+          </div>
+          <div class="quick-case-list" data-quick-case-list></div>
+          <input type="hidden" name="cases_json" data-quick-cases-json>
+          <div class="quick-actions">
+            <button type="button" data-add-quick-case>＋ 添加一组参数</button>
+            <button class="primary" type="submit">开始安全估算</button>
+          </div>
+        </form>
+      </article>
     </section>
 
     <template id="quick-case-template">
@@ -85,137 +84,124 @@
           <div><span class="case-number" data-case-number></span><strong data-case-title>参数</strong></div>
           <button type="button" class="danger-button" data-remove-quick-case>移除</button>
         </div>
-
         <div class="quick-grid identity-grid">
           <label>Case ID<input data-field="id" pattern="[A-Za-z0-9._-]+" maxlength="128" required></label>
           <label>名称<input data-field="name" required></label>
-          <label>问题类型
-            <select data-field="problem_kind">
-              <option value="lwe">LWE</option>
-              <option value="rlwe">RLWE</option>
-              <option value="glwe">GLWE</option>
-              <option value="ntru">NTRU</option>
-              <option value="sis">SIS</option>
-            </select>
-          </label>
-          <label>安全模型
-            <select data-field="security_model"><option value="classical">classical</option><option value="quantum">quantum</option></select>
-          </label>
+          <label>问题类型<select data-field="problem_kind"><option value="lwe">LWE</option><option value="rlwe">RLWE</option><option value="glwe">GLWE</option><option value="ntru">NTRU</option><option value="sis">SIS</option></select></label>
+          <label>安全模型<select data-field="security_model"><option value="classical">classical</option><option value="quantum">quantum</option></select></label>
         </div>
-
         <div class="quick-grid">
           <label data-problems="lwe ntru sis">维数 n<input data-field="dimension" type="number" min="1" step="1" value="1024" required></label>
           <label data-problems="rlwe glwe">环次数 N<input data-field="ring_degree" type="number" min="1" step="1" value="1024" required></label>
           <label data-problems="glwe">GLWE 维数 k<input data-field="glwe_dimension" type="number" min="1" step="1" value="1" required></label>
           <label data-problems="lwe rlwe glwe ntru sis">模数 q<input data-field="modulus" inputmode="numeric" pattern="[0-9]+" value="65536" required></label>
-          <label data-problems="lwe rlwe glwe">样本
-            <select data-field="samples_kind"><option value="unlimited">unlimited</option><option value="finite">finite</option></select>
-          </label>
+          <label data-problems="lwe rlwe glwe">样本<select data-field="samples_kind"><option value="unlimited">unlimited</option><option value="finite">finite</option></select></label>
           <label data-samples="finite">样本数 m<input data-field="sample_count" type="number" min="1" step="1" value="1024" required></label>
           <label data-problems="ntru">NTRU 结构<select data-field="ntru_structure"><option value="matrix">matrix</option><option value="circulant">circulant</option></select></label>
           <label data-problems="sis">列数 m<input data-field="columns" type="number" min="1" step="1" value="2048" required></label>
           <label data-problems="sis">长度界<input data-field="length_bound" value="1024" inputmode="decimal" required></label>
           <label data-problems="sis">范数<select data-field="norm"><option value="l2">L2</option><option value="l_infinity">L∞</option></select></label>
         </div>
-
         <div class="distribution-grid" data-problems="lwe rlwe glwe ntru">
           <fieldset>
             <legend>私钥分布</legend>
-            <label>类型
-              <select data-field="secret_kind">
-                <option value="uniform_binary">uniform binary</option>
-                <option value="uniform_ternary">uniform ternary</option>
-                <option value="fixed_weight_binary">fixed-weight binary</option>
-                <option value="fixed_weight_ternary">fixed-weight ternary</option>
-                <option value="discrete_gaussian">discrete Gaussian</option>
-                <option value="centered_binomial">centered binomial</option>
-                <option value="uniform_integer">bounded integer</option>
-              </select>
-            </label>
+            <label>类型<select data-field="secret_kind"><option value="uniform_binary">uniform binary</option><option value="uniform_ternary">uniform ternary</option><option value="fixed_weight_binary">fixed-weight binary</option><option value="fixed_weight_ternary">fixed-weight ternary</option><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
             <label data-secret="fixed_weight_binary">Hamming weight<input data-field="secret_hamming_weight" type="number" min="0" step="1" value="64" required></label>
-            <div class="quick-grid" data-secret="fixed_weight_ternary">
-              <label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label>
-              <label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label>
-            </div>
+            <div class="quick-grid" data-secret="fixed_weight_ternary"><label>正权重<input data-field="secret_positive_weight" type="number" min="0" step="1" value="32" required></label><label>负权重<input data-field="secret_negative_weight" type="number" min="0" step="1" value="32" required></label></div>
             <label data-secret="discrete_gaussian">标准差 σ<input data-field="secret_standard_deviation" value="3.2" inputmode="decimal" required></label>
             <label data-secret="centered_binomial">η<input data-field="secret_eta" type="number" min="1" step="1" value="3" required></label>
-            <div class="quick-grid" data-secret="uniform_integer">
-              <label>下界<input data-field="secret_lower" value="-1" inputmode="numeric" required></label>
-              <label>上界<input data-field="secret_upper" value="1" inputmode="numeric" required></label>
-            </div>
+            <div class="quick-grid" data-secret="uniform_integer"><label>下界<input data-field="secret_lower" value="-1" inputmode="numeric" required></label><label>上界<input data-field="secret_upper" value="1" inputmode="numeric" required></label></div>
           </fieldset>
-
           <fieldset>
             <legend>噪声分布</legend>
-            <label>类型
-              <select data-field="error_kind">
-                <option value="discrete_gaussian">discrete Gaussian</option>
-                <option value="centered_binomial">centered binomial</option>
-                <option value="uniform_integer">bounded integer</option>
-              </select>
-            </label>
+            <label>类型<select data-field="error_kind"><option value="discrete_gaussian">discrete Gaussian</option><option value="centered_binomial">centered binomial</option><option value="uniform_integer">bounded integer</option></select></label>
             <label data-error="discrete_gaussian">标准差 σ<input data-field="error_standard_deviation" value="3.2" inputmode="decimal" required></label>
             <label data-error="centered_binomial">η<input data-field="error_eta" type="number" min="1" step="1" value="3" required></label>
-            <div class="quick-grid" data-error="uniform_integer">
-              <label>下界<input data-field="error_lower" value="-1" inputmode="numeric" required></label>
-              <label>上界<input data-field="error_upper" value="1" inputmode="numeric" required></label>
-            </div>
+            <div class="quick-grid" data-error="uniform_integer"><label>下界<input data-field="error_lower" value="-1" inputmode="numeric" required></label><label>上界<input data-field="error_upper" value="1" inputmode="numeric" required></label></div>
           </fieldset>
         </div>
       </article>
     </template>
 
-    <section class="panel section-panel">
-      <div class="section-heading"><div><p class="eyebrow">PARAMETER SETS</p><h2>方案库</h2></div><span>{{ parameter_sets.len() }} sets</span></div>
-      <div class="card-grid">
-      {% for item in parameter_sets %}
-        <a class="set-card" href="/ui/parameter-sets/{{ item.id }}">
-          <span class="mono">{{ item.id }}</span><h3>{{ item.name }}</h3>
-          <p>{{ item.case_count }} cases · version {{ item.version }}</p><small>{{ item.created_at }}</small>
-        </a>
-      {% else %}
-        <div class="empty">还没有方案。先导入一个 parameter-set。</div>
-      {% endfor %}
+    <section id="workspace-schemes" class="workspace-panel" data-workspace-panel="schemes"{% if active_tab != "schemes" %} hidden{% endif %}>
+      <div class="scheme-layout">
+        <article class="panel section-panel import-panel">
+          <div class="section-heading"><div><p class="eyebrow">IMPORT</p><h2>导入方案</h2></div></div>
+          <form method="post" action="/ui/import" class="stack">
+            <label class="file-drop">选择 JSON 文件<input type="file" accept="application/json,.json" data-file-target="parameter-document"></label>
+            <textarea id="parameter-document" name="document" rows="10" required placeholder="粘贴 lattice-security/parameter-set JSON"></textarea>
+            <label>冲突策略
+              <select name="conflict"><option value="reject">拒绝导入（推荐）</option><option value="replace">替换为新版本</option></select>
+            </label>
+            <div class="policy-explainer">
+              <strong>冲突策略是什么意思？</strong>
+              <p><b>拒绝导入：</b>如果方案 ID 已存在，整个导入失败，现有数据不变。<br><b>替换为新版本：</b>保存为该方案的新版本，方案库显示新版本；历史批次和报告仍保留原始参数快照。</p>
+            </div>
+            <label class="check"><input type="checkbox" name="run_all" value="yes"> 导入后立即运行全部 case</label>
+            <div class="form-row compact">
+              <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
+              <label>慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
+              <label>高安全阈值<input name="high_security_bits" value="128"></label>
+            </div>
+            <small class="field-note">上面的运行策略仅在勾选“导入后立即运行”时生效；规则与安全估算页的正常测试相同。</small>
+            <button class="primary" type="submit">导入方案</button>
+          </form>
+        </article>
+
+        <article class="panel section-panel library-panel">
+          <div class="section-heading"><div><p class="eyebrow">PARAMETER SETS</p><h2>方案库</h2></div><span>{{ parameter_sets.len() }} 个方案</span></div>
+          <div class="card-grid">
+          {% for item in parameter_sets %}
+            <article class="set-card">
+              <a class="set-card-main" href="/ui/parameter-sets/{{ item.id }}"><span class="mono">{{ item.id }}</span><h3>{{ item.name }}</h3><p>{{ item.case_count }} cases · version {{ item.version }}</p><small>{{ item.created_at }}</small></a>
+              <form method="post" action="/ui/parameter-sets/{{ item.id }}/delete" data-confirm="确定删除方案“{{ item.name }}”的所有版本吗？历史批次、报告和攻击缓存不会被删除。">
+                <button class="danger-button compact-button" type="submit">删除方案</button>
+              </form>
+            </article>
+          {% else %}
+            <div class="empty">还没有方案。请先在左侧导入 parameter-set。</div>
+          {% endfor %}
+          </div>
+        </article>
       </div>
     </section>
 
-    <section class="panel section-panel">
-      <div class="section-heading"><div><p class="eyebrow">RUNS</p><h2>运行批次</h2></div><span class="htmx-indicator">同步中…</span></div>
-      <form id="batch-filters" class="filterbar" hx-get="/ui/batches" hx-target="#batch-table" hx-trigger="input changed delay:250ms, change">
-        <input name="q" placeholder="按 batch id 筛选">
-        <select name="state"><option value="">全部状态</option><option>pending</option><option>queued</option><option>running</option><option>completed</option><option>partial</option><option>timed_out</option><option>cancelled</option><option>failed</option></select>
-        <select name="sort"><option value="updated_desc">最近更新</option><option value="created_asc">最早创建</option><option value="security_asc">安全 bit</option></select>
-      </form>
-      <form class="bulkbar" data-collect-form>
-        <input type="hidden" name="ids" data-collect-output>
-        <button formaction="/ui/batches/bulk-cancel" formmethod="post">取消</button>
-        <button formaction="/ui/batches/bulk-rerun" formmethod="post">重跑</button>
-        <button formaction="/ui/batches/bulk-export" formmethod="post">导出报告</button>
-      </form>
-      <div id="batch-table" hx-get="/ui/batches" hx-trigger="every 5s" hx-include="#batch-filters">
-        {% include "batch_table.html" %}
-      </div>
-      <div id="detail-panel" class="detail-panel"><p class="empty">选择一个批次查看 case、attack 与缓存详情。</p></div>
+    <section id="workspace-runs" class="workspace-panel" data-workspace-panel="runs"{% if active_tab != "runs" %} hidden{% endif %}>
+      <article class="panel section-panel">
+        <div class="section-heading"><div><p class="eyebrow">RUNS</p><h2>运行批次</h2></div><span class="htmx-indicator">同步中…</span></div>
+        <div class="run-layout">
+          <aside class="batch-master" aria-label="批次列表">
+            <form id="batch-filters" class="filterbar" hx-get="/ui/batches" hx-target="#batch-list" hx-trigger="input changed delay:250ms, change">
+              <input name="q" placeholder="按 Batch ID 筛选">
+              <select name="state"><option value="">全部状态</option><option>pending</option><option>queued</option><option>running</option><option>completed</option><option>partial</option><option>timed_out</option><option>cancelled</option><option>failed</option></select>
+              <select name="sort"><option value="updated_desc">最近更新</option><option value="created_asc">最早创建</option><option value="security_asc">安全 bit</option></select>
+            </form>
+            <form class="bulkbar" data-collect-form>
+              <input type="hidden" name="ids" data-collect-output>
+              <button formaction="/ui/batches/bulk-cancel" formmethod="post">取消</button>
+              <button formaction="/ui/batches/bulk-rerun" formmethod="post">重跑</button>
+              <button formaction="/ui/batches/bulk-export" formmethod="post">导出</button>
+            </form>
+            <div id="batch-list" hx-get="/ui/batches" hx-trigger="every 5s" hx-include="#batch-filters">{% include "batch_table.html" %}</div>
+          </aside>
+          <div id="detail-panel" class="detail-panel"{% if !initial_batch_id.is_empty() %} hx-get="/ui/batches/{{ initial_batch_id }}/detail" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
+            <p class="empty">{% if initial_batch_id.is_empty() %}还没有运行批次。{% else %}正在加载最新批次详情…{% endif %}</p>
+          </div>
+        </div>
+      </article>
     </section>
 
-    <section class="panel section-panel split">
-      <div>
-        <p class="eyebrow">SWEEP</p><h2>参数扫描</h2>
-        <p class="muted">从一个 case 生成最多 10,000 个变体；超过 2,000 个活跃任务时，其余变体保持 pending 并自动进入队列。</p>
-      </div>
-      <form method="post" action="/ui/sweeps" class="stack">
-        <textarea name="base_case" rows="8" required placeholder="粘贴一个 ParameterCase JSON"></textarea>
-        <div class="form-row">
-          <label>扫描轴<select name="axis"><option value="dimension">dimension</option><option value="modulus">modulus</option><option value="error_standard_deviation">error standard deviation</option><option value="sample_count">sample count</option></select></label>
-          <label>值（逗号或换行）<textarea name="values" rows="3" required placeholder="512, 768, 1024"></textarea></label>
-        </div>
-        <div class="form-row compact">
-          <label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label>
-          <label>慢攻击判断<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label>
-          <label>高安全阈值<input name="high_security_bits" value="128"></label>
-        </div>
-        <button class="primary" type="submit">生成并运行 sweep</button>
-      </form>
+    <section id="workspace-sweep" class="workspace-panel" data-workspace-panel="sweep"{% if active_tab != "sweep" %} hidden{% endif %}>
+      <article class="panel section-panel split">
+        <div><p class="eyebrow">SWEEP</p><h2>参数扫描</h2><p class="muted">从一个 case 生成最多 10,000 个变体；超过 2,000 个活跃任务时，其余变体保持 pending 并自动进入队列。</p></div>
+        <form method="post" action="/ui/sweeps" class="stack">
+          <textarea name="base_case" rows="10" required placeholder="粘贴一个 ParameterCase JSON"></textarea>
+          <div class="form-row"><label>扫描轴<select name="axis"><option value="dimension">dimension</option><option value="modulus">modulus</option><option value="error_standard_deviation">error standard deviation</option><option value="sample_count">sample count</option></select></label><label>值（逗号或换行）<textarea name="values" rows="3" required placeholder="512, 768, 1024"></textarea></label></div>
+          <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label><label>高安全阈值<input name="high_security_bits" value="128"></label></div>
+          <div class="policy-explainer"><strong>慢攻击策略</strong><p>每个生成的 case 都执行正常测试：快速结果达到阈值时，可在决策时间后停止尚未完成的 arora_gb 和 bkw。</p></div>
+          <button class="primary" type="submit">生成并运行 sweep</button>
+        </form>
+      </article>
     </section>
   </main>
   <footer>lattice-security · local only · Sage 10.9</footer>

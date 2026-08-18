@@ -1,9 +1,33 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ name }} · Lattice Security</title><link rel="stylesheet" href="/assets/app.css"><script defer src="/assets/app.js"></script></head>
-<body><header class="topbar"><div><p class="eyebrow">PARAMETER SET</p><h1>{{ name }}</h1></div><a class="back" href="/">← 返回工作台</a></header>
-<main><section class="panel section-panel"><div class="section-heading"><div><span class="mono">{{ id }}</span><p>{{ description }}</p></div><span>{{ cases.len() }} cases</span></div>
-<form method="post" action="/ui/parameter-sets/{{ id }}/run" data-collect-form>
-  <input type="hidden" name="case_ids" data-collect-output>
-  <div class="case-list">{% for case in cases %}<label class="case-select"><input type="checkbox" value="{{ case.id }}" data-batch-select><span><strong>{{ case.name }}</strong><small class="mono">{{ case.id }}</small><code>{{ case.problem }}</code></span></label>{% endfor %}</div>
-  <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>慢攻击判断<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label><label>高安全阈值<input name="high_security_bits" value="128"></label></div>
-  <p class="muted">未选择 case 时运行全部。</p><button class="primary" type="submit">运行选中 case</button>
-</form></section></main></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ name }} · Lattice Security</title>
+  <link rel="stylesheet" href="/assets/app.css?v=3">
+  <script defer src="/assets/app.js?v=3"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div><p class="eyebrow">PARAMETER SET</p><h1>{{ name }}</h1></div>
+    <a class="back" href="/?tab=schemes">← 返回方案库</a>
+  </header>
+  <main>
+    <section class="panel section-panel">
+      <div class="section-heading"><div><span class="mono">{{ id }}</span><p>{{ description }}</p></div><span>{{ cases.len() }} cases</span></div>
+      <form method="post" action="/ui/parameter-sets/{{ id }}/run" data-collect-form>
+        <input type="hidden" name="case_ids" data-collect-output>
+        <div class="case-list">{% for case in cases %}<label class="case-select"><input type="checkbox" value="{{ case.id }}" data-batch-select><span><strong>{{ case.name }}</strong><small class="mono">{{ case.id }}</small><code>{{ case.problem }}</code></span></label>{% endfor %}</div>
+        <div class="form-row compact"><label>总超时<input name="timeout_seconds" type="number" min="2" max="7200" value="3600"></label><label>慢攻击判断时间<input name="decision_after_seconds" type="number" min="1" max="7199" value="60"></label><label>高安全阈值<input name="high_security_bits" value="128"></label></div>
+        <div class="policy-explainer"><strong>慢攻击判断是什么意思？</strong><p>快速攻击完成后，如果最低安全 bit 已达到阈值，服务可在判断时间后停止仍未完成的 arora_gb 和 bkw；否则继续等待到完成或总超时。</p></div>
+        <p class="muted">未选择 case 时运行全部。</p>
+        <div class="page-actions"><button class="primary" type="submit">运行选中 case</button></div>
+      </form>
+    </section>
+    <section class="panel danger-zone">
+      <div><strong>删除方案</strong><p>删除方案库中的全部版本。已经生成的批次、报告及攻击缓存不会被删除。</p></div>
+      <form method="post" action="/ui/parameter-sets/{{ id }}/delete" data-confirm="确定删除方案“{{ name }}”的所有版本吗？历史批次、报告和攻击缓存不会被删除。"><button class="danger-button" type="submit">删除方案</button></form>
+    </section>
+  </main>
+</body>
+</html>
