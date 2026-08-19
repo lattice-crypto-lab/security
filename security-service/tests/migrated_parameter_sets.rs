@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf};
 
-use lattice_security::{ExactDecimal, ParameterSetFile, PositiveInteger, Validate};
+use lattice_security::{
+    ExactDecimal, ParameterSetFile, PositiveInteger, Problem, SecretDistribution, Validate,
+};
 
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -84,5 +86,40 @@ fn migrated_parameter_sets_follow_the_public_contract() {
             path.display()
         );
         assert_canonical_numeric_strings(&input, "$input");
+    }
+}
+
+#[test]
+fn omr2_preserves_sparse_binary_keys_and_primus_ternary_semantics() {
+    let path = repository_root().join("parameter-sets/omr2.lattice-params.json");
+    let source = fs::read_to_string(path).expect("read OMR2 parameter set");
+    let parameter_set: ParameterSetFile =
+        serde_json::from_str(&source).expect("deserialize OMR2 parameter set");
+
+    let secret = |case_id: &str| {
+        let case = parameter_set
+            .cases
+            .iter()
+            .find(|case| case.id == case_id)
+            .unwrap_or_else(|| panic!("missing OMR2 case {case_id}"));
+        let Problem::Lwe(problem) = &case.problem else {
+            panic!("OMR2 cases must remain LWE problems");
+        };
+        problem.secret.clone()
+    };
+
+    for case_id in ["clue", "ksk"] {
+        assert_eq!(
+            secret(case_id),
+            SecretDistribution::FixedWeightBinary { hamming_weight: 64 },
+            "{case_id} must preserve the 64-nonzero binary key from omr2.py"
+        );
+    }
+    for case_id in ["first-bsk", "second-bsk"] {
+        assert_eq!(
+            secret(case_id),
+            SecretDistribution::SparseTernary {},
+            "{case_id} uses the Primus coefficient-wise sparse ternary model"
+        );
     }
 }

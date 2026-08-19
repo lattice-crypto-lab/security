@@ -14,7 +14,7 @@
         "dimension": 1024,
         "modulus": "120833",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "uniform_binary" },
+        "secret": { "kind": "fixed_weight_binary", "hamming_weight": 64 },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "3.19" }
       }
     },
@@ -38,24 +38,20 @@
         "dimension": 1024,
         "modulus": "67104769",
         "samples": { "kind": "unlimited" },
-        "secret": { "kind": "uniform_binary" },
+        "secret": { "kind": "fixed_weight_binary", "hamming_weight": 64 },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "1633.28" }
       }
     },
     {
       "id": "second-bsk",
       "name": "Second BSK",
-      "description": "原脚本显式使用正负各 N/8，与 Primus sparse_ternary 的正负各 1/4 概率不同，因此保留为 fixed_weight_ternary。",
+      "description": "按方案语义使用 Primus sparse_ternary：P(-1)=1/4、P(0)=1/2、P(1)=1/4。",
       "problem": {
         "kind": "lwe",
         "dimension": 2048,
         "modulus": "1125899906826241",
         "samples": { "kind": "unlimited" },
-        "secret": {
-          "kind": "fixed_weight_ternary",
-          "positive_weight": 256,
-          "negative_weight": 256
-        },
+        "secret": { "kind": "sparse_ternary" },
         "error": { "kind": "discrete_gaussian", "standard_deviation": "0.849" }
       }
     }

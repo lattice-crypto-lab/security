@@ -138,6 +138,9 @@ async fn no_finite_estimator_results_are_complete_and_cached() {
     assert!(detail.1.contains("no finite estimate"));
     assert!(detail.1.contains("estimator details"));
     assert!(detail.1.contains("rop: +Infinity"));
+    assert!(detail.1.contains("class=\"attack-table\""));
+    assert!(detail.1.contains("<th>β</th>"));
+    assert!(detail.1.contains(">238</td>"));
     let calls = harness.calls.load(Ordering::SeqCst);
 
     let second = json_request(&harness.app, "POST", "/v1/estimates", &request).await;
@@ -853,7 +856,7 @@ async fn quick_estimate_form_accepts_multiple_cases_in_rough_mode() {
         None,
     )
     .await;
-    assert!(detail.1.contains("本批次参数"));
+    assert!(detail.1.contains("执行详情"));
     assert!(detail.1.contains("secret: uniform binary"));
     assert!(detail.1.contains("error: discrete Gaussian (σ=3.2)"));
 }
@@ -1202,7 +1205,12 @@ async fn mock_estimate(State(state): State<MockState>, Json(request): Json<Value
                     "outcome": {
                         "kind": "computed",
                         "security_bits": state.security_bits,
-                        "metrics": {}
+                        "metrics": {
+                            "beta": {"kind": "integer", "value": "238"},
+                            "d": {"kind": "integer", "value": "734"},
+                            "zeta": {"kind": "integer", "value": "64"},
+                            "tag": {"kind": "text", "value": "mock"}
+                        }
                     }
                 })
             }

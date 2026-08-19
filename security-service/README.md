@@ -42,8 +42,12 @@ uses a master-detail layout with the batch list on the left and the selected
 report on the right. It supports parameter-set import/deletion, case selection,
 direct multi-case parameter entry with save/save-and-run actions, batch
 filtering/sorting, readable parameter snapshots next to their security bits,
-attack details, polling, bulk cancel/rerun/export, and one-axis sweep creation. The JSON sweep
-API supports up to four Cartesian axes and 10,000 generated cases.
+compact attack tables sorted by security bits, best-attack highlighting, common
+estimator metrics (`beta`, `d`, `zeta`, and `tag`), polling, bulk
+cancel/rerun/export, and one-axis sweep creation. Non-computed reasons and raw
+estimator details stay collapsed until requested. On narrow screens the attack
+table becomes compact stacked rows. The JSON sweep API supports up to four
+Cartesian axes and 10,000 generated cases.
 
 Finished run batches can also be deleted individually or in bulk. Active
 batches must be cancelled first. Deleting run history removes its jobs,

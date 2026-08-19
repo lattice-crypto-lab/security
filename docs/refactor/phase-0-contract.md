@@ -21,6 +21,14 @@ or legacy report formats is provided. After parameter migration was verified,
 the superseded root scripts, notebooks, and `lwe_security` package were
 removed; the migrated JSON parameter sets are the maintained source.
 
+The maintained parameter sets were re-audited against their deleted scripts
+and notebooks. Ordinary half-density `SparseBinary` inputs are represented as
+`uniform_binary`; explicitly sparse keys retain their exact fixed weight.
+Primus secrets with probabilities `P(-1)=1/4`, `P(0)=1/2`, and `P(1)=1/4` use
+the public `sparse_ternary` distribution. In `omr2`, Clue and KSK are therefore
+fixed-weight binary with weight 64, while First BSK and Second BSK use
+`sparse_ternary` as the intended scheme-level model.
+
 ## Problems and analysis
 
 The contract supports LWE, RLWE, GLWE, standard NTRU, and SIS. Numeric identity

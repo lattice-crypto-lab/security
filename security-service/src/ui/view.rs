@@ -3,11 +3,11 @@
 //! HTTP/form handling stays in the parent module; this module only converts
 //! domain snapshots into values that Askama templates can render.
 
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 
 use crate::{
-    AttackOutcome, ErrorDistribution, EstimateRequest, ExactDecimal, ParameterCase, Problem,
-    SampleCount, SecretDistribution,
+    AttackOutcome, AttackResult, ErrorDistribution, EstimateRequest, ExactDecimal,
+    NormalizedMetric, ParameterCase, Problem, SampleCount, SecretDistribution,
     database::ParameterSetSummary,
     error::ServiceError,
     service::{AppState, BatchSnapshot, JobSnapshot},
@@ -99,6 +99,7 @@ pub(super) struct UiReport {
     pub(super) case_id: String,
     pub(super) case_name: String,
     pub(super) security: String,
+    pub(super) best_attack: String,
     pub(super) complete: bool,
     pub(super) fast_estimate: bool,
     pub(super) approximate: bool,
@@ -108,6 +109,9 @@ pub(super) struct UiReport {
 
 impl UiReport {
     pub(super) fn new(entry: &crate::SecurityReportEntry) -> Self {
+        let mut results = entry.attacks.iter().collect::<Vec<_>>();
+        results.sort_by(|left, right| compare_attack_results(left, right));
+        let best_attack = entry.summary.best_attack;
         Self {
             case_id: entry.case.id.clone(),
             case_name: entry.case.name.clone(),
@@ -117,11 +121,17 @@ impl UiReport {
                 .as_ref()
                 .map(format_security_bits)
                 .unwrap_or_else(|| "—".to_owned()),
+            best_attack: best_attack
+                .map(|attack| enum_name(&attack))
+                .unwrap_or_else(|| "—".to_owned()),
             complete: entry.summary.complete,
             fast_estimate: entry.summary.fast_estimate,
             approximate: entry.summary.approximate,
             parameters: problem_view(&entry.case.problem),
-            attacks: entry.attacks.iter().map(UiAttack::new).collect(),
+            attacks: results
+                .into_iter()
+                .map(|result| UiAttack::new(result, Some(result.attack) == best_attack))
+                .collect(),
         }
     }
 }
@@ -147,21 +157,87 @@ pub(super) struct UiAttack {
     pub(super) name: String,
     pub(super) outcome: String,
     pub(super) security: String,
+    pub(super) beta: String,
+    pub(super) dimension: String,
+    pub(super) zeta: String,
+    pub(super) tag: String,
     pub(super) detail: String,
     pub(super) audit: String,
     pub(super) cached: bool,
+    pub(super) best: bool,
+    pub(super) show_detail: bool,
 }
 
 impl UiAttack {
-    fn new(result: &crate::AttackResult) -> Self {
+    fn new(result: &crate::AttackResult, best: bool) -> Self {
         Self {
             name: enum_name(&result.attack),
             outcome: outcome_name(&result.outcome).to_owned(),
             security: outcome_security(&result.outcome),
+            beta: outcome_metric(&result.outcome, "beta"),
+            dimension: outcome_metric(&result.outcome, "d"),
+            zeta: outcome_metric(&result.outcome, "zeta"),
+            tag: outcome_metric(&result.outcome, "tag"),
             detail: outcome_detail(&result.outcome),
             audit: outcome_audit(&result.outcome),
             cached: result.cached,
+            best,
+            show_detail: !matches!(result.outcome, AttackOutcome::Computed { .. }),
         }
+    }
+}
+
+fn compare_attack_results(left: &AttackResult, right: &AttackResult) -> Ordering {
+    match (
+        outcome_security_value(&left.outcome),
+        outcome_security_value(&right.outcome),
+    ) {
+        (Some(left_bits), Some(right_bits)) => {
+            left_bits.as_big_decimal().cmp(&right_bits.as_big_decimal())
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => outcome_rank(&left.outcome)
+            .cmp(&outcome_rank(&right.outcome))
+            .then_with(|| left.attack.cmp(&right.attack)),
+    }
+}
+
+fn outcome_security_value(outcome: &AttackOutcome) -> Option<&ExactDecimal> {
+    match outcome {
+        AttackOutcome::Computed { security_bits, .. }
+        | AttackOutcome::Approximate { security_bits, .. } => Some(security_bits),
+        _ => None,
+    }
+}
+
+fn outcome_rank(outcome: &AttackOutcome) -> u8 {
+    match outcome {
+        AttackOutcome::NoFiniteEstimate { .. } => 0,
+        AttackOutcome::PolicySkipped { .. } | AttackOutcome::Skipped { .. } => 1,
+        AttackOutcome::Unsupported { .. } => 2,
+        AttackOutcome::Timeout { .. } => 3,
+        AttackOutcome::Failed { .. } => 4,
+        AttackOutcome::Computed { .. } | AttackOutcome::Approximate { .. } => 0,
+    }
+}
+
+fn outcome_metric(outcome: &AttackOutcome, key: &str) -> String {
+    let AttackOutcome::Computed { metrics, .. } = outcome else {
+        return "—".to_owned();
+    };
+    metrics
+        .get(key)
+        .map(normalized_metric_text)
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn normalized_metric_text(metric: &NormalizedMetric) -> String {
+    match metric {
+        NormalizedMetric::Integer { value } => value.as_bigint().to_string(),
+        NormalizedMetric::Decimal { value } => value.to_string(),
+        NormalizedMetric::Boolean { value } => value.to_string(),
+        NormalizedMetric::Text { value } => value.clone(),
     }
 }
 
@@ -403,8 +479,15 @@ pub(super) fn format_security_bits(value: &ExactDecimal) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_security_bits, outcome_audit, outcome_detail, outcome_security};
-    use crate::{AttackOutcome, ExactDecimal};
+    use std::{cmp::Ordering, collections::BTreeMap};
+
+    use super::{
+        UiAttack, compare_attack_results, format_security_bits, outcome_audit, outcome_detail,
+        outcome_security,
+    };
+    use crate::{
+        Attack, AttackOutcome, AttackResult, ExactDecimal, NormalizedMetric, SignedInteger,
+    };
 
     #[test]
     fn security_bits_are_rounded_only_for_ui_display() {
@@ -432,5 +515,30 @@ mod tests {
         );
         assert_eq!(outcome_security(&outcome), "∞");
         assert!(outcome_audit(&outcome).contains("rop: +Infinity"));
+    }
+
+    #[test]
+    fn attack_rows_sort_by_security_and_expose_estimator_metrics() {
+        let computed = |attack, bits, beta| AttackResult {
+            attack,
+            cached: false,
+            outcome: AttackOutcome::Computed {
+                security_bits: ExactDecimal::new(bits).unwrap(),
+                duration_ms: 1,
+                metrics: BTreeMap::from([(
+                    "beta".to_owned(),
+                    NormalizedMetric::Integer {
+                        value: SignedInteger::new(beta).unwrap(),
+                    },
+                )]),
+            },
+        };
+        let usvp = computed(Attack::Usvp, "140.2", "270");
+        let bdd = computed(Attack::Bdd, "128.98", "238");
+
+        assert_eq!(compare_attack_results(&bdd, &usvp), Ordering::Less);
+        let row = UiAttack::new(&bdd, true);
+        assert_eq!(row.beta, "238");
+        assert!(row.best);
     }
 }
