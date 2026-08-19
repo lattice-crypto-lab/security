@@ -470,27 +470,6 @@ pub enum NormalizedMetric {
     Text { value: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ApproximationProvenance {
-    pub model_id: String,
-    pub model_version: u32,
-    pub model_hash: String,
-    pub dataset_hash: String,
-    pub feature_schema: String,
-    pub estimator_commit: String,
-    pub sage_version: String,
-    pub adapter_version: String,
-    pub worker_image: String,
-    pub platform: String,
-    pub training_points: u64,
-    pub holdout_samples: u64,
-    pub holdout_mean_absolute_error_bits: ExactDecimal,
-    pub holdout_p95_absolute_error_bits: ExactDecimal,
-    pub holdout_max_overestimate_bits: ExactDecimal,
-    pub safety_margin_bits: ExactDecimal,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttackOutcome {
@@ -499,10 +478,6 @@ pub enum AttackOutcome {
         duration_ms: u64,
         #[serde(default)]
         metrics: BTreeMap<String, NormalizedMetric>,
-    },
-    Approximate {
-        security_bits: ExactDecimal,
-        provenance: Box<ApproximationProvenance>,
     },
     NoFiniteEstimate {
         code: String,

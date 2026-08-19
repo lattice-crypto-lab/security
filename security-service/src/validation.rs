@@ -151,16 +151,6 @@ impl Validate for SecurityReportFile {
                     "a fast estimate cannot be marked complete",
                 ));
             }
-            let approximate = report
-                .attacks
-                .iter()
-                .any(|result| matches!(result.outcome, AttackOutcome::Approximate { .. }));
-            if report.summary.approximate != approximate {
-                return Err(ValidationError::new(
-                    format!("reports[{index}].summary.approximate"),
-                    "approximate must match the attack outcomes",
-                ));
-            }
         }
         Ok(())
     }

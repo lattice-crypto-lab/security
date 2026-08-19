@@ -36,8 +36,8 @@ lattice-estimator 没有对应的概率型对象，adapter 使用平衡的典型
 
 ## 未迁移为参数文件的历史来源
 
-- `prime.py` 只有 NTT-friendly 模数搜索条件，没有 secret/error 等完整问题输入；
-  它应作为 sweep 约束使用，不能独立构成安全估算 case。
+- `prime.py` 只有 NTT-friendly 模数搜索条件，没有 secret/error 等完整问题输入，
+  不能独立构成安全估算 case，也不属于当前服务功能。
 - `utils.py` 与 `lwe_security/` 是旧常量、缓存和调用实现，没有独立方案。
 - `gaussian.ipynb` 是离散高斯采样实验，缺少维数、模数和密钥分布。
 - `root.ipynb` 是有限域根实验，`static.ipynb` 是耗时统计，均不是安全估算输入。

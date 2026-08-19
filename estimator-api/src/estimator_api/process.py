@@ -12,7 +12,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from .models import EstimateRequest, WorkerResponse
-from .planner import resolve_plan
 
 
 class WorkerRunError(RuntimeError):
@@ -144,18 +143,13 @@ class SageProcessRunner:
                 "Sage worker returned an invalid response", details=audit
             ) from error
 
-        expected_plan = resolve_plan(request.problem, request.target_attacks)
-        if response.plan != expected_plan:
-            raise WorkerProtocolError(
-                "Sage worker returned a plan different from the requested closure", details=audit
-            )
-        expected = expected_plan.executed
+        expected = request.target_attacks
         returned = [result.attack for result in response.results]
         if returned != expected:
             audit["expected_attacks"] = [attack.value for attack in expected]
             audit["returned_attacks"] = [attack.value for attack in returned]
             raise WorkerProtocolError(
-                "Sage worker result order/coverage does not match the execution plan",
+                "Sage worker result order/coverage does not match target_attacks",
                 details=audit,
             )
         return response

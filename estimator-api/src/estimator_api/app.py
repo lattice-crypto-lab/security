@@ -18,7 +18,6 @@ from .constants import (
     ADAPTER_VERSION,
     DEFAULT_CLEANUP_GRACE_SECONDS,
     DEFAULT_ESTIMATOR_CONCURRENCY,
-    DEPENDENCY_GRAPH_VERSION,
     ESTIMATOR_COMMIT,
     MAX_ESTIMATOR_CONCURRENCY,
     REQUEST_BODY_LIMIT_BYTES,
@@ -26,7 +25,6 @@ from .constants import (
     SAGE_VERSION,
 )
 from .models import (
-    DEPENDENCY_GRAPH,
     EXACT_DISTRIBUTIONS,
     LWE_ATTACKS,
     LWE_SLOW_ATTACKS,
@@ -190,7 +188,6 @@ def create_app(
                 raise WorkerCancelledError("request disconnected before worker execution")
             worker = await process_runner.run(payload, cancellation)
             return EstimateResponse(
-                plan=worker.plan,
                 results=worker.results,
                 duration_ms=worker.duration_ms,
                 provenance=_provenance(),
@@ -231,7 +228,6 @@ def _metadata() -> MetadataResponse:
     return MetadataResponse(
         adapter_version=ADAPTER_VERSION,
         adapter_schema_version=ADAPTER_SCHEMA_VERSION,
-        dependency_graph_version=DEPENDENCY_GRAPH_VERSION,
         estimator_commit=ESTIMATOR_COMMIT,
         sage_version=SAGE_VERSION,
         worker_image=SAGE_IMAGE,
@@ -251,7 +247,6 @@ def _metadata() -> MetadataResponse:
                 distributions=[],
             ),
         },
-        dependency_graph={key: list(value) for key, value in DEPENDENCY_GRAPH.items()},
         adaptive_attacks=list(LWE_SLOW_ATTACKS),
     )
 
@@ -262,7 +257,6 @@ def _provenance() -> EstimatorProvenance:
         sage_version=SAGE_VERSION,
         adapter_version=ADAPTER_VERSION,
         adapter_schema_version=ADAPTER_SCHEMA_VERSION,
-        dependency_graph_version=DEPENDENCY_GRAPH_VERSION,
         worker_image=SAGE_IMAGE,
     )
 

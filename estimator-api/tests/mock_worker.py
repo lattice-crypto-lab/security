@@ -10,10 +10,8 @@ from estimator_api.models import (
     AttackExecution,
     ComputedOutcome,
     EstimateRequest,
-    ResultRole,
     WorkerResponse,
 )
-from estimator_api.planner import resolve_plan
 
 
 def main() -> int:
@@ -37,17 +35,13 @@ def main() -> int:
         print(json.dumps({"code": "mock_failure"}), file=sys.stderr)
         return 7
 
-    plan = resolve_plan(request.problem, request.target_attacks)
-    targets = set(plan.target)
     response = WorkerResponse(
-        plan=plan,
         results=[
             AttackExecution(
                 attack=attack,
-                role=ResultRole.TARGET if attack in targets else ResultRole.SUPPORT,
                 outcome=ComputedOutcome(kind="computed", security_bits="128", metrics={}),
             )
-            for attack in plan.executed
+            for attack in request.target_attacks
         ],
         duration_ms=1,
     )

@@ -1,14 +1,10 @@
 use std::{path::PathBuf, sync::Arc};
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApproximationEngine, SecurityReportFile,
-    database::Database,
-    error::ServiceError,
-    scheduler::{Scheduler, SchedulerHandle},
-    upstream::{EstimatorClient, Metadata},
+    SecurityReportFile, application::Application, database::Database, error::ServiceError,
+    scheduler::Scheduler, upstream::EstimatorClient,
 };
 
 pub const MAX_QUEUED_JOBS: usize = 2_000;
@@ -22,7 +18,7 @@ pub struct AppConfig {
     pub estimator_url: String,
     pub poll_after_seconds: u64,
     pub api_token: Option<String>,
-    pub approximation_model_path: Option<PathBuf>,
+    pub web_dir: PathBuf,
     pub case_concurrency: usize,
     pub estimator_concurrency: usize,
 }
@@ -41,9 +37,14 @@ impl AppConfig {
             api_token: std::env::var("LATTICE_SECURITY_API_TOKEN")
                 .ok()
                 .filter(|value| !value.is_empty()),
-            approximation_model_path: std::env::var_os("LATTICE_SECURITY_APPROXIMATION_MODEL")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from),
+            web_dir: std::env::var_os("LATTICE_SECURITY_WEB_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .expect("security-service must have a repository parent")
+                        .join("web/dist")
+                }),
             case_concurrency: concurrency_from_environment(
                 "LATTICE_SECURITY_CASE_CONCURRENCY",
                 DEFAULT_CASE_CONCURRENCY,
@@ -70,12 +71,9 @@ fn concurrency_from_environment(name: &str, default: usize) -> Result<usize, Ser
         .ok_or_else(|| ServiceError::BadRequest(format!("{name} must be between 1 and 32")))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RunState {
-    Pending {
-        staged_at: String,
-    },
     Queued {
         queued_at: String,
     },
@@ -111,7 +109,6 @@ pub enum RunState {
 impl RunState {
     pub fn kind(&self) -> &'static str {
         match self {
-            Self::Pending { .. } => "pending",
             Self::Queued { .. } => "queued",
             Self::Running { .. } => "running",
             Self::CancelRequested { .. } => "cancel_requested",
@@ -136,7 +133,7 @@ impl RunState {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BatchSnapshot {
     pub batch_id: String,
     pub state: RunState,
@@ -144,13 +141,14 @@ pub struct BatchSnapshot {
     pub created_at: String,
     pub updated_at: String,
     pub poll_after_seconds: u64,
-    pub job_ids: Vec<String>,
+    #[serde(skip)]
+    pub(crate) job_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub report: Option<SecurityReportFile>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct JobSnapshot {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct JobSnapshot {
     pub job_id: String,
     pub batch_id: String,
     pub case_id: String,
@@ -164,11 +162,9 @@ pub struct JobSnapshot {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub database: Database,
-    pub scheduler: SchedulerHandle,
-    pub metadata: Metadata,
-    pub poll_after_seconds: u64,
+    pub application: Application,
     pub api_token: Option<String>,
+    pub web_dir: PathBuf,
 }
 
 impl AppState {
@@ -178,25 +174,17 @@ impl AppState {
         let mut metadata = upstream.metadata().await?;
         metadata.slow_attack_applicability_rule_version =
             crate::SLOW_ATTACK_APPLICABILITY_RULE_VERSION;
-        let approximation = ApproximationEngine::load(
-            config.approximation_model_path.as_deref(),
-            &metadata.context(),
-        )?;
-        metadata.approximation = approximation.metadata();
         let (scheduler, handle) = Scheduler::new(
             database.clone(),
             upstream,
             metadata.clone(),
-            approximation,
             config.case_concurrency,
             config.estimator_concurrency,
         );
         let state = Arc::new(Self {
-            database,
-            scheduler: handle,
-            metadata,
-            poll_after_seconds: config.poll_after_seconds,
+            application: Application::new(database, handle, metadata, config.poll_after_seconds),
             api_token: config.api_token.clone(),
+            web_dir: config.web_dir.clone(),
         });
         scheduler.start().await?;
         Ok(state)

@@ -159,7 +159,6 @@ def test_finite_exact_rop_is_converted_to_numeric_security_bits() -> None:
 
     execution = _normalize_attack(
         Attack.BKW,
-        [Attack.BKW],
         {"bkw": {"rop": 2**40, "tag": "coded-bkw"}},
         {},
     )
@@ -189,7 +188,6 @@ def test_adaptive_slow_plan_remains_callable() -> None:
 def test_infinite_rop_is_a_terminal_auditable_estimate() -> None:
     execution = _normalize_attack(
         Attack.DUAL_HYBRID,
-        [Attack.DUAL_HYBRID],
         {"dual_hybrid": {"rop": float("inf"), "tag": "test"}},
         {"stderr": "estimator diagnostic"},
     )

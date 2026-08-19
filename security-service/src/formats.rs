@@ -54,8 +54,6 @@ pub struct SecuritySummary {
     #[serde(default)]
     pub fast_estimate: bool,
     #[serde(default)]
-    pub approximate: bool,
-    #[serde(default)]
     pub warnings: Vec<String>,
 }
 
@@ -108,21 +106,19 @@ pub struct SecurityReportFile {
     pub reports: Vec<SecurityReportEntry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EstimateRequest {
-    #[schemars(length(min = 1, max = 500))]
     pub cases: Vec<ParameterCase>,
     #[serde(default)]
     pub mode: EstimateMode,
     #[serde(default = "default_timeout_seconds")]
-    #[schemars(range(min = 1, max = 7200))]
     pub timeout_seconds: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slow_attack_policy: Option<SlowAttackPolicy>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EstimateMode {
     Rough,
@@ -130,48 +126,14 @@ pub enum EstimateMode {
     Normal,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SlowAttackPolicy {
     pub required_security_bits: ExactDecimal,
     pub stop_margin_bits: ExactDecimal,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SweepAxis {
-    Dimension {
-        #[schemars(length(min = 1, max = 10000))]
-        values: Vec<u64>,
-    },
-    Modulus {
-        #[schemars(length(min = 1, max = 10000))]
-        values: Vec<crate::PositiveInteger>,
-    },
-    ErrorStandardDeviation {
-        #[schemars(length(min = 1, max = 10000))]
-        values: Vec<ExactDecimal>,
-    },
-    SampleCount {
-        #[schemars(length(min = 1, max = 10000))]
-        values: Vec<u64>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SweepRequest {
-    pub base_case: ParameterCase,
-    #[schemars(length(min = 1, max = 4))]
-    pub axes: Vec<SweepAxis>,
-    #[serde(default = "default_timeout_seconds")]
-    #[schemars(range(min = 1, max = 7200))]
-    pub timeout_seconds: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slow_attack_policy: Option<SlowAttackPolicy>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ErrorEnvelope {
     pub code: String,

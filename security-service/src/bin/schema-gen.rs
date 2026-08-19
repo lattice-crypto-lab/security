@@ -1,13 +1,6 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
-use lattice_security::{
-    ApproximationModelFile, ErrorEnvelope, EstimateRequest, ParameterSetFile, SecurityReportFile,
-    SweepRequest,
-    database::ImportedParameterSet,
-    service::{BatchSnapshot, JobSnapshot},
-    sweep::SweepResponse,
-    upstream::Metadata,
-};
+use lattice_security::{ParameterSetFile, SecurityReportFile};
 use schemars::{JsonSchema, schema_for};
 use serde::Serialize;
 
@@ -34,19 +27,6 @@ fn run() -> Result<(), String> {
 
     process::<ParameterSetFile>(&schema_dir, "parameter-set-v1.schema.json", check)?;
     process::<SecurityReportFile>(&schema_dir, "security-report-v1.schema.json", check)?;
-    process::<EstimateRequest>(&schema_dir, "estimate-request-v1.schema.json", check)?;
-    process::<ErrorEnvelope>(&schema_dir, "error-response-v1.schema.json", check)?;
-    process::<BatchSnapshot>(&schema_dir, "batch-snapshot-v1.schema.json", check)?;
-    process::<JobSnapshot>(&schema_dir, "job-snapshot-v1.schema.json", check)?;
-    process::<ImportedParameterSet>(
-        &schema_dir,
-        "parameter-set-import-response-v1.schema.json",
-        check,
-    )?;
-    process::<Metadata>(&schema_dir, "metadata-response-v1.schema.json", check)?;
-    process::<SweepRequest>(&schema_dir, "sweep-request-v1.schema.json", check)?;
-    process::<SweepResponse>(&schema_dir, "sweep-response-v1.schema.json", check)?;
-    process::<ApproximationModelFile>(&schema_dir, "slow-attack-model-v1.schema.json", check)?;
     Ok(())
 }
 

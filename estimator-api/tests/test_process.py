@@ -40,7 +40,6 @@ def test_worker_protocol_round_trip() -> None:
         "dual",
         "dual_hybrid",
     ]
-    assert all(item.role.value == "target" for item in response.results)
     assert all(item.outcome.kind == "computed" for item in response.results)
 
 

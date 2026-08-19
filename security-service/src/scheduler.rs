@@ -10,17 +10,16 @@ use tokio::{
 };
 
 use crate::{
-    AnalysisModel, ApplicabilityLevel, ApproximationEngine, Attack, AttackCacheIdentity,
-    AttackOutcome, AttackResult, EstimateMode, EstimateRequest, EstimatorProblem, ExactDecimal,
-    ParameterCase, Provenance, SLOW_ATTACK_APPLICABILITY_RULE_VERSION, SecurityReportEntry,
-    SecurityReportFile, SecuritySummary, Validate, analysis_model_for, attacks_for_problem,
-    canonical_json,
+    AnalysisModel, ApplicabilityLevel, Attack, AttackCacheIdentity, AttackOutcome, AttackResult,
+    EstimateMode, EstimateRequest, EstimatorProblem, ParameterCase, Provenance,
+    SLOW_ATTACK_APPLICABILITY_RULE_VERSION, SecurityReportEntry, SecurityReportFile,
+    SecuritySummary, Validate, analysis_model_for, attacks_for_problem, canonical_json,
     database::{Database, JobWork},
     error::ServiceError,
     fast_attacks_for_problem,
     service::{BatchSnapshot, MAX_QUEUED_JOBS, RunState, now},
     slow_attack_applicability, slow_attacks_for_problem, stable_hash,
-    upstream::{EstimatorClient, Metadata, ResultRole, WorkerOutcome, WorkerRequest},
+    upstream::{EstimatorClient, Metadata, WorkerOutcome, WorkerRequest},
 };
 
 pub struct Scheduler {
@@ -40,7 +39,6 @@ struct Runner {
     database: Database,
     upstream: EstimatorClient,
     metadata: Metadata,
-    approximation: ApproximationEngine,
     estimator_slots: Arc<Semaphore>,
     single_flight: Mutex<HashMap<String, Weak<Mutex<()>>>>,
 }
@@ -67,7 +65,6 @@ impl Scheduler {
         database: Database,
         upstream: EstimatorClient,
         metadata: Metadata,
-        approximation: ApproximationEngine,
         case_concurrency: usize,
         estimator_concurrency: usize,
     ) -> (Self, SchedulerHandle) {
@@ -76,7 +73,6 @@ impl Scheduler {
             database,
             upstream,
             metadata,
-            approximation,
             estimator_slots: Arc::new(Semaphore::new(estimator_concurrency)),
             single_flight: Mutex::new(HashMap::new()),
         });
@@ -96,7 +92,6 @@ impl Scheduler {
     }
 
     pub async fn start(mut self) -> Result<(), ServiceError> {
-        self.handle.runner.database.promote_pending_jobs().await?;
         for job_id in self.handle.runner.database.queued_jobs().await? {
             self.handle.enqueue(job_id).await?;
         }
@@ -146,22 +141,6 @@ impl SchedulerHandle {
         Ok((false, batch))
     }
 
-    pub async fn submit_staged(
-        &self,
-        request: EstimateRequest,
-        poll_after_seconds: u64,
-    ) -> Result<BatchSnapshot, ServiceError> {
-        request.validate()?;
-        let mut batch = self.runner.database.create_staged_batch(request).await?;
-        batch.poll_after_seconds = poll_after_seconds;
-        for job_id in &batch.job_ids {
-            if self.runner.database.job(job_id).await?.state.kind() == "queued" {
-                self.enqueue(job_id.clone()).await?;
-            }
-        }
-        Ok(batch)
-    }
-
     pub async fn cancel(
         &self,
         batch_id: &str,
@@ -185,9 +164,6 @@ impl SchedulerHandle {
 
     async fn process(&self, job_id: String) -> Result<(), ServiceError> {
         let Some(work) = self.runner.database.claim_job(&job_id).await? else {
-            for promoted in self.runner.database.promote_pending_jobs().await? {
-                self.enqueue(promoted).await?;
-            }
             return Ok(());
         };
         match self.runner.process_work(&work, &self.cancellation).await {
@@ -219,9 +195,6 @@ impl SchedulerHandle {
             }
         }
         self.runner.refresh_batch(&work.batch_id).await?;
-        for promoted in self.runner.database.promote_pending_jobs().await? {
-            self.enqueue(promoted).await?;
-        }
         Ok(())
     }
 }
@@ -230,31 +203,34 @@ impl Runner {
     async fn fully_cached(&self, request: &EstimateRequest) -> Result<bool, ServiceError> {
         for case in &request.cases {
             let context = self.case_context(case)?;
-            let requested = match request.mode {
-                EstimateMode::Rough => fast_attacks_for_problem(&case.problem),
-                EstimateMode::Normal => attacks_for_problem(&case.problem),
-            };
-            for attack in requested {
+            let mut cached = BTreeMap::new();
+            for attack in fast_attacks_for_problem(&case.problem) {
                 let key = context.cache_identity(*attack).hash();
-                if self.database.cached_outcome(&key).await?.is_some() {
-                    continue;
-                }
-                if request.mode == EstimateMode::Normal
-                    && slow_attacks_for_problem(&case.problem).contains(attack)
+                let Some(outcome) = self.database.cached_outcome(&key).await? else {
+                    return Ok(false);
+                };
+                cached.insert(
+                    *attack,
+                    AttackResult {
+                        attack: *attack,
+                        cached: true,
+                        outcome: outcome.outcome,
+                    },
+                );
+            }
+            if request.mode == EstimateMode::Rough {
+                continue;
+            }
+            let policy = request.slow_attack_policy.as_ref().ok_or_else(|| {
+                ServiceError::Internal("missing validated slow attack policy".to_owned())
+            })?;
+            for attack in slow_attacks_for_problem(&case.problem) {
+                let key = context.cache_identity(*attack).hash();
+                if self.database.cached_outcome(&key).await?.is_some()
+                    || context.applicability(*attack)?.level == ApplicabilityLevel::Inapplicable
+                    || fast_results_meet_stop_threshold(&cached, policy)
                 {
-                    let applicability = context.applicability(*attack)?;
-                    if applicability.level == ApplicabilityLevel::Inapplicable {
-                        continue;
-                    }
-                    if applicability.level == ApplicabilityLevel::Applicable {
-                        return Ok(false);
-                    }
-                    let policy = request.slow_attack_policy.as_ref().ok_or_else(|| {
-                        ServiceError::Internal("missing validated slow attack policy".to_owned())
-                    })?;
-                    if self.preflight_allows_skip(&context, *attack, policy)? {
-                        continue;
-                    }
+                    continue;
                 }
                 return Ok(false);
             }
@@ -285,80 +261,82 @@ impl Runner {
             }
         }
 
-        let cached_slow = slow_attacks_for_problem(&work.case.problem)
+        let fast_plans = fast_attack_groups(&work.case.problem, &results);
+        let mut fast_estimate = false;
+        if !fast_plans.is_empty() {
+            let execution = self
+                .run_plans(work, &context, fast_plans, deadline, cancellation)
+                .await?;
+            results.extend(execution.results);
+            match execution.control {
+                WorkerControl::Cancelled => {
+                    return Ok(self.cancelled_completion(work, &context, results));
+                }
+                WorkerControl::TimedOut => {
+                    return Ok(self.timed_out_completion(work, &context, results));
+                }
+                WorkerControl::Completed => {}
+            }
+        }
+
+        let missing_slow = slow_attacks_for_problem(&work.case.problem)
             .iter()
             .copied()
-            .filter(|attack| results.contains_key(attack))
+            .filter(|attack| !results.contains_key(attack))
             .collect::<Vec<_>>();
-        self.apply_approximations(&context, &cached_slow, &mut results)
-            .await?;
+        let slow_candidates =
+            self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
 
-        let mut plans = fast_attack_groups(&work.case.problem, &results);
-        let mut fast_estimate = false;
-        if work.request.mode == EstimateMode::Rough {
-            let missing_slow = slow_attacks_for_problem(&work.case.problem)
-                .iter()
-                .copied()
-                .filter(|attack| !results.contains_key(attack))
-                .collect::<Vec<_>>();
-            let approximation_candidates =
-                self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
-            self.apply_approximations(&context, &approximation_candidates, &mut results)
-                .await?;
-            for attack in approximation_candidates {
+        let control = if work.request.mode == EstimateMode::Rough {
+            for attack in slow_candidates {
                 results.entry(attack).or_insert_with(|| AttackResult {
                     attack,
                     cached: false,
                     outcome: AttackOutcome::Skipped {
-                        reason: format!(
-                            "rough mode runs fast attacks only; {}",
-                            self.approximation.unavailable_reason()
-                        ),
+                        reason: "rough mode runs fast attacks only".to_owned(),
                     },
                 });
             }
             fast_estimate = true;
+            WorkerControl::Completed
         } else {
-            let missing_slow = slow_attacks_for_problem(&work.case.problem)
-                .iter()
-                .copied()
-                .filter(|attack| !results.contains_key(attack))
-                .collect::<Vec<_>>();
-            let missing_slow =
-                self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
             let policy = work.request.slow_attack_policy.as_ref().ok_or_else(|| {
                 ServiceError::Internal("missing validated slow attack policy".to_owned())
             })?;
-            for attack in missing_slow {
-                if self.preflight_allows_skip(&context, attack, policy)? {
-                    fast_estimate = true;
-                    self.apply_approximations(&context, &[attack], &mut results)
-                        .await?;
-                } else {
-                    plans.push(vec![attack]);
+            if fast_results_meet_stop_threshold(&results, policy) {
+                for attack in slow_candidates {
+                    results.insert(
+                        attack,
+                        AttackResult {
+                            attack,
+                            cached: false,
+                            outcome: AttackOutcome::PolicySkipped {
+                                code: "fast_estimate_above_threshold".to_owned(),
+                                reason: format!(
+                                    "the lowest fast-attack estimate is at least the required security plus the configured {}-bit margin",
+                                    policy.stop_margin_bits
+                                ),
+                                applicability_rule_version:
+                                    SLOW_ATTACK_APPLICABILITY_RULE_VERSION,
+                            },
+                        },
+                    );
                 }
+                WorkerControl::Completed
+            } else if slow_candidates.is_empty() {
+                WorkerControl::Completed
+            } else {
+                let plans = slow_candidates
+                    .into_iter()
+                    .map(|attack| vec![attack])
+                    .collect();
+                let execution = self
+                    .run_plans(work, &context, plans, deadline, cancellation)
+                    .await?;
+                results.extend(execution.results);
+                execution.control
             }
-        }
-
-        let control = if plans.is_empty() {
-            WorkerControl::Completed
-        } else {
-            let execution = self
-                .run_plans(work, &context, plans, deadline, cancellation)
-                .await?;
-            results.extend(execution.results);
-            execution.control
         };
-
-        if work.request.mode == EstimateMode::Normal {
-            let slow = slow_attacks_for_problem(&work.case.problem)
-                .iter()
-                .copied()
-                .filter(|attack| results.contains_key(attack))
-                .collect::<Vec<_>>();
-            self.apply_approximations(&context, &slow, &mut results)
-                .await?;
-        }
 
         match control {
             WorkerControl::Cancelled => {
@@ -435,26 +413,6 @@ impl Runner {
         Ok(PlanExecution { control, results })
     }
 
-    fn preflight_allows_skip(
-        &self,
-        context: &CaseContext,
-        attack: Attack,
-        policy: &crate::SlowAttackPolicy,
-    ) -> Result<bool, ServiceError> {
-        let applicability = context.applicability(attack)?;
-        if applicability.level != ApplicabilityLevel::Borderline {
-            return Ok(false);
-        }
-        let identity = context.cache_identity(attack);
-        let Some(prediction) = self.approximation.predict(&identity)? else {
-            return Ok(false);
-        };
-        let AttackOutcome::Approximate { security_bits, .. } = prediction.outcome else {
-            return Ok(false);
-        };
-        Ok(approximation_meets_stop_threshold(&security_bits, policy))
-    }
-
     fn apply_applicability_skips(
         &self,
         context: &CaseContext,
@@ -482,67 +440,6 @@ impl Runner {
             }
         }
         Ok(candidates)
-    }
-
-    async fn apply_approximations(
-        &self,
-        context: &CaseContext,
-        attacks: &[Attack],
-        results: &mut BTreeMap<Attack, AttackResult>,
-    ) -> Result<(), ServiceError> {
-        for attack in attacks {
-            if context.applicability(*attack)?.level != ApplicabilityLevel::Borderline {
-                continue;
-            }
-            let replaceable = results.get(attack).is_none_or(|result| {
-                matches!(
-                    result.outcome,
-                    AttackOutcome::NoFiniteEstimate { .. }
-                        | AttackOutcome::Unsupported { .. }
-                        | AttackOutcome::Timeout { .. }
-                        | AttackOutcome::Skipped { .. }
-                )
-            });
-            if !replaceable {
-                continue;
-            }
-            let identity = context.cache_identity(*attack);
-            let Some(prediction) = self.approximation.predict(&identity)? else {
-                continue;
-            };
-            if let Some(cached) = self
-                .database
-                .cached_approximation(&prediction.cache_key)
-                .await?
-            {
-                results.insert(
-                    *attack,
-                    AttackResult {
-                        attack: *attack,
-                        cached: true,
-                        outcome: cached.outcome,
-                    },
-                );
-                continue;
-            }
-            self.database
-                .put_cached_approximation(
-                    prediction.cache_key.clone(),
-                    *attack,
-                    prediction.outcome.clone(),
-                    prediction.model_hash,
-                )
-                .await?;
-            results.insert(
-                *attack,
-                AttackResult {
-                    attack: *attack,
-                    cached: false,
-                    outcome: prediction.outcome,
-                },
-            );
-        }
-        Ok(())
     }
 
     async fn acquire_flight_locks(
@@ -734,7 +631,7 @@ impl Runner {
 
         let mut retryable_failure = false;
         for execution in response.results {
-            if execution.role != ResultRole::Target || !targets.contains(&execution.attack) {
+            if !targets.contains(&execution.attack) {
                 continue;
             }
             let outcome = match execution.outcome {
@@ -862,20 +759,25 @@ impl Runner {
             .filter_map(|attack| results.get(attack).cloned())
             .collect::<Vec<_>>();
         let estimates = ordered.iter().filter_map(|result| match &result.outcome {
-            AttackOutcome::Computed { security_bits, .. }
-            | AttackOutcome::Approximate { security_bits, .. } => {
-                Some((result.attack, security_bits))
-            }
+            AttackOutcome::Computed { security_bits, .. } => Some((result.attack, security_bits)),
             _ => None,
         });
         let best =
             estimates.min_by(|left, right| left.1.as_big_decimal().cmp(&right.1.as_big_decimal()));
-        let approximate = ordered
-            .iter()
-            .any(|result| matches!(result.outcome, AttackOutcome::Approximate { .. }));
-        let policy_skipped = ordered
-            .iter()
-            .any(|result| matches!(result.outcome, AttackOutcome::PolicySkipped { .. }));
+        let threshold_skipped = ordered.iter().any(|result| {
+            matches!(
+                &result.outcome,
+                AttackOutcome::PolicySkipped { code, .. }
+                    if code == "fast_estimate_above_threshold"
+            )
+        });
+        let domain_skipped = ordered.iter().any(|result| {
+            matches!(
+                &result.outcome,
+                AttackOutcome::PolicySkipped { code, .. }
+                    if code != "fast_estimate_above_threshold"
+            )
+        });
         let complete = work.request.mode == EstimateMode::Normal
             && ordered.len() == attacks_for_problem(&work.case.problem).len()
             && ordered.iter().all(|result| {
@@ -888,16 +790,24 @@ impl Runner {
             });
         let request_hash = stable_hash(&(
             SLOW_ATTACK_APPLICABILITY_RULE_VERSION,
+            work.request.mode,
+            &work.request.slow_attack_policy,
             attacks_for_problem(&work.case.problem)
                 .iter()
                 .map(|attack| context.cache_identity(*attack))
                 .collect::<Vec<_>>(),
         ));
         let mut warnings = analysis_warnings(&context.analysis_model);
-        if policy_skipped {
+        if domain_skipped {
             warnings.push(format!(
                 "slow attacks outside the reviewed applicability domain were excluded by applicability rules v{SLOW_ATTACK_APPLICABILITY_RULE_VERSION}; completeness is relative to that policy"
             ));
+        }
+        if threshold_skipped {
+            warnings.push(
+                "slow attacks were excluded because the lowest fast-attack estimate met the requested security target plus margin; completeness is relative to that policy"
+                    .to_owned(),
+            );
         }
         SecurityReportEntry {
             case: work.case.clone(),
@@ -915,8 +825,7 @@ impl Runner {
                 security_bits: best.map(|(_, bits)| bits.clone()),
                 best_attack: best.map(|(attack, _)| attack),
                 complete,
-                fast_estimate: fast_estimate || approximate,
-                approximate,
+                fast_estimate,
                 warnings,
             },
             attacks: ordered,
@@ -1086,12 +995,22 @@ async fn wait_for_cancel(database: &Database, batch_id: &str, job_id: &str, noti
     }
 }
 
-fn approximation_meets_stop_threshold(
-    security_bits: &ExactDecimal,
+fn fast_results_meet_stop_threshold(
+    results: &BTreeMap<Attack, AttackResult>,
     policy: &crate::SlowAttackPolicy,
 ) -> bool {
-    security_bits.as_big_decimal()
-        >= policy.required_security_bits.as_big_decimal() + policy.stop_margin_bits.as_big_decimal()
+    results
+        .values()
+        .filter_map(|result| match &result.outcome {
+            AttackOutcome::Computed { security_bits, .. } => Some(security_bits),
+            _ => None,
+        })
+        .min_by(|left, right| left.as_big_decimal().cmp(&right.as_big_decimal()))
+        .is_some_and(|security_bits| {
+            security_bits.as_big_decimal()
+                >= policy.required_security_bits.as_big_decimal()
+                    + policy.stop_margin_bits.as_big_decimal()
+        })
 }
 
 fn insert_timeouts(
@@ -1123,19 +1042,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn approximation_preflight_includes_the_configured_margin() {
+    fn fast_estimate_threshold_includes_the_configured_margin() {
         let policy = crate::SlowAttackPolicy {
-            required_security_bits: ExactDecimal::new("128").unwrap(),
-            stop_margin_bits: ExactDecimal::new("16").unwrap(),
+            required_security_bits: crate::ExactDecimal::new("128").unwrap(),
+            stop_margin_bits: crate::ExactDecimal::new("16").unwrap(),
         };
-        assert!(!approximation_meets_stop_threshold(
-            &ExactDecimal::new("143.999").unwrap(),
+        let results = |bits: &str| {
+            BTreeMap::from([(
+                Attack::Usvp,
+                AttackResult {
+                    attack: Attack::Usvp,
+                    cached: false,
+                    outcome: AttackOutcome::Computed {
+                        security_bits: crate::ExactDecimal::new(bits).unwrap(),
+                        duration_ms: 1,
+                        metrics: BTreeMap::new(),
+                    },
+                },
+            )])
+        };
+        assert!(!fast_results_meet_stop_threshold(
+            &results("143.999"),
             &policy
         ));
-        assert!(approximation_meets_stop_threshold(
-            &ExactDecimal::new("144").unwrap(),
-            &policy
-        ));
+        assert!(fast_results_meet_stop_threshold(&results("144"), &policy));
     }
 
     #[test]

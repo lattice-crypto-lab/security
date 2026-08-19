@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{
     AttackOutcome, EstimateRequest, ParameterCase, ParameterSetFile, SecurityReportEntry,
     SecurityReportFile,
+    application::{ImportedParameterSet, ParameterSetSummary},
     error::ServiceError,
     service::{BatchSnapshot, JobSnapshot, MAX_QUEUED_JOBS, RunState, now},
 };
@@ -28,7 +29,6 @@ pub struct Database {
 pub struct JobWork {
     pub job_id: String,
     pub batch_id: String,
-    pub case_index: usize,
     pub case: ParameterCase,
     pub request: EstimateRequest,
     pub attempts: u32,
@@ -37,21 +37,6 @@ pub struct JobWork {
 #[derive(Clone, Debug)]
 pub struct CachedOutcome {
     pub outcome: AttackOutcome,
-}
-
-#[derive(Clone, Debug, serde::Serialize, schemars::JsonSchema)]
-pub struct ImportedParameterSet {
-    pub id: String,
-    pub version: u64,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct ParameterSetSummary {
-    pub id: String,
-    pub name: String,
-    pub version: u64,
-    pub case_count: usize,
-    pub created_at: String,
 }
 
 impl Database {
@@ -104,33 +89,7 @@ impl Database {
             .map_err(|_| ServiceError::Database("database response dropped".to_owned()))?
     }
 
-    pub async fn active_job_count(&self) -> DbResult<usize> {
-        self.call(|connection| {
-            let count: i64 = connection
-                .query_row(
-                    "SELECT COUNT(*) FROM jobs WHERE state_kind IN ('queued','running','cancel_requested')",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(ServiceError::database)?;
-            usize::try_from(count).map_err(ServiceError::database)
-        })
-        .await
-    }
-
     pub async fn create_batch(&self, request: EstimateRequest) -> DbResult<BatchSnapshot> {
-        self.create_batch_mode(request, false).await
-    }
-
-    pub async fn create_staged_batch(&self, request: EstimateRequest) -> DbResult<BatchSnapshot> {
-        self.create_batch_mode(request, true).await
-    }
-
-    async fn create_batch_mode(
-        &self,
-        request: EstimateRequest,
-        allow_staging: bool,
-    ) -> DbResult<BatchSnapshot> {
         self.call(move |connection| {
             let transaction = connection.transaction().map_err(ServiceError::database)?;
             let active: i64 = transaction
@@ -141,10 +100,9 @@ impl Database {
                 )
                 .map_err(ServiceError::database)?;
             let active = usize::try_from(active).unwrap_or(usize::MAX);
-            if !allow_staging && active + request.cases.len() > MAX_QUEUED_JOBS {
+            if active + request.cases.len() > MAX_QUEUED_JOBS {
                 return Err(ServiceError::QueueFull);
             }
-            let queue_slots = MAX_QUEUED_JOBS.saturating_sub(active);
 
             let batch_id = Uuid::new_v4().to_string();
             let timestamp = now();
@@ -163,13 +121,7 @@ impl Database {
             let mut job_ids = Vec::with_capacity(request.cases.len());
             for (case_index, case) in request.cases.iter().enumerate() {
                 let job_id = Uuid::new_v4().to_string();
-                let job_state = if allow_staging && case_index >= queue_slots {
-                    RunState::Pending {
-                        staged_at: timestamp.clone(),
-                    }
-                } else {
-                    state.clone()
-                };
+                let job_state = state.clone();
                 transaction
                     .execute(
                         "INSERT INTO jobs (id,batch_id,case_index,case_id,state_kind,state_json,revision,attempts,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,1,0,?7,?7)",
@@ -207,31 +159,6 @@ impl Database {
             .await
     }
 
-    pub async fn list_batches(
-        &self,
-        limit: usize,
-        poll_after_seconds: u64,
-    ) -> DbResult<Vec<BatchSnapshot>> {
-        self.call(move |connection| {
-            let mut statement = connection
-                .prepare("SELECT id FROM batches ORDER BY updated_at DESC LIMIT ?1")
-                .map_err(ServiceError::database)?;
-            let ids = statement
-                .query_map(
-                    [i64::try_from(limit).map_err(ServiceError::database)?],
-                    |row| row.get::<_, String>(0),
-                )
-                .map_err(ServiceError::database)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(ServiceError::database)?;
-            drop(statement);
-            ids.into_iter()
-                .map(|id| load_batch(connection, &id, poll_after_seconds))
-                .collect()
-        })
-        .await
-    }
-
     pub async fn list_batches_with_requests(
         &self,
         limit: usize,
@@ -262,7 +189,7 @@ impl Database {
         .await
     }
 
-    pub async fn job(&self, job_id: &str) -> DbResult<JobSnapshot> {
+    pub(crate) async fn job(&self, job_id: &str) -> DbResult<JobSnapshot> {
         let job_id = job_id.to_owned();
         self.call(move |connection| load_job(connection, &job_id))
             .await
@@ -280,53 +207,6 @@ impl Database {
                 .map_err(ServiceError::database)?;
             rows.collect::<Result<Vec<_>, _>>()
                 .map_err(ServiceError::database)
-        })
-        .await
-    }
-
-    pub async fn promote_pending_jobs(&self) -> DbResult<Vec<String>> {
-        self.call(|connection| {
-            let transaction = connection.transaction().map_err(ServiceError::database)?;
-            let active: i64 = transaction
-                .query_row(
-                    "SELECT COUNT(*) FROM jobs WHERE state_kind IN ('queued','running','cancel_requested')",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(ServiceError::database)?;
-            let slots = MAX_QUEUED_JOBS
-                .saturating_sub(usize::try_from(active).unwrap_or(usize::MAX));
-            if slots == 0 {
-                return Ok(Vec::new());
-            }
-            let mut statement = transaction
-                .prepare(
-                    "SELECT id FROM jobs WHERE state_kind='pending' ORDER BY created_at,case_index LIMIT ?1",
-                )
-                .map_err(ServiceError::database)?;
-            let ids = statement
-                .query_map(
-                    [i64::try_from(slots).map_err(ServiceError::database)?],
-                    |row| row.get::<_, String>(0),
-                )
-                .map_err(ServiceError::database)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(ServiceError::database)?;
-            drop(statement);
-            let timestamp = now();
-            let state = RunState::Queued {
-                queued_at: timestamp.clone(),
-            };
-            for id in &ids {
-                transaction
-                    .execute(
-                        "UPDATE jobs SET state_kind='queued',state_json=?2,revision=revision+1,updated_at=?3 WHERE id=?1 AND state_kind='pending'",
-                        params![id, json(&state)?, timestamp],
-                    )
-                    .map_err(ServiceError::database)?;
-            }
-            transaction.commit().map_err(ServiceError::database)?;
-            Ok(ids)
         })
         .await
     }
@@ -397,7 +277,6 @@ impl Database {
             Ok(Some(JobWork {
                 job_id,
                 batch_id,
-                case_index: index,
                 case,
                 request,
                 attempts: u32::try_from(attempts + 1).map_err(ServiceError::database)?,
@@ -673,43 +552,6 @@ impl Database {
         }).await
     }
 
-    pub async fn cached_approximation(&self, key: &str) -> DbResult<Option<CachedOutcome>> {
-        let key = key.to_owned();
-        self.call(move |connection| {
-            let value = connection
-                .query_row(
-                    "SELECT outcome_json FROM approximation_cache WHERE cache_key=?1",
-                    [key],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(ServiceError::database)?;
-            value
-                .map(|value| from_json(&value).map(|outcome| CachedOutcome { outcome }))
-                .transpose()
-        })
-        .await
-    }
-
-    pub async fn put_cached_approximation(
-        &self,
-        key: String,
-        attack: crate::Attack,
-        outcome: AttackOutcome,
-        model_hash: String,
-    ) -> DbResult<()> {
-        self.call(move |connection| {
-            connection
-                .execute(
-                    "INSERT OR IGNORE INTO approximation_cache (cache_key,attack,outcome_json,model_hash,created_at) VALUES (?1,?2,?3,?4,?5)",
-                    params![key, json(&attack)?, json(&outcome)?, model_hash, now()],
-                )
-                .map_err(ServiceError::database)?;
-            Ok(())
-        })
-        .await
-    }
-
     pub async fn import_parameter_set(
         &self,
         parameter_set: ParameterSetFile,
@@ -844,9 +686,6 @@ fn initialize(connection: Connection) -> DbResult<Connection> {
          CREATE TABLE IF NOT EXISTS attack_cache (
             cache_key TEXT PRIMARY KEY, attack TEXT NOT NULL, outcome_json TEXT NOT NULL,
             estimator_context_json TEXT NOT NULL, created_at TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS approximation_cache (
-            cache_key TEXT PRIMARY KEY, attack TEXT NOT NULL, outcome_json TEXT NOT NULL,
-            model_hash TEXT NOT NULL, created_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS execution_attempts (
             id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id), attempt INTEGER NOT NULL,
             state_kind TEXT NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT,

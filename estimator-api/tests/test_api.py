@@ -48,7 +48,6 @@ def test_health_metadata_and_estimate_contracts() -> None:
             "dual",
             "dual_hybrid",
         ]
-        assert response.json()["plan"]["support"] == []
         assert response.json()["provenance"]["estimator_commit"] == ESTIMATOR_COMMIT
 
 

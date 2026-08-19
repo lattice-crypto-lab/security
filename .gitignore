@@ -10,6 +10,10 @@ __pycache__/
 # Rust
 target/
 
+# Web UI
+web/node_modules/
+web/dist/
+
 # Local runtime and calibration output
 .env
 *.parquet

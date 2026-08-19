@@ -15,7 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EstimateRequest, ParameterSetFile, SweepRequest, Validate,
+    EstimateRequest, ParameterSetFile,
     error::ServiceError,
     service::{AppState, BatchSnapshot},
 };
@@ -24,26 +24,25 @@ const REQUEST_BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 pub fn router(state: Arc<AppState>) -> Router {
     let token = state.api_token.clone();
-    Router::new()
+    let api = Router::new()
         .route("/healthz", get(health))
         .route("/v1/metadata", get(metadata))
         .route("/v1/estimates", post(estimate))
-        .route("/v1/sweeps", post(sweep))
-        .route("/v1/batches/{batch_id}", get(batch))
+        .route("/v1/batches", get(batches))
+        .route("/v1/batches/{batch_id}", get(batch).delete(delete_batch))
         .route("/v1/batches/{batch_id}/cancel", post(cancel))
         .route("/v1/batches/{batch_id}/rerun", post(rerun))
         .route("/v1/batches/{batch_id}/export", get(export_report))
-        .route("/v1/results/{batch_id}", get(export_report))
-        .route("/v1/jobs/{job_id}", get(job))
+        .route("/v1/parameter-sets", get(parameter_sets))
         .route("/v1/parameter-sets/import", post(import_parameter_set))
         .route(
-            "/v1/parameter-sets/{parameter_set_id}/export",
-            get(export_parameter_set),
+            "/v1/parameter-sets/{parameter_set_id}",
+            get(export_parameter_set).delete(delete_parameter_set),
         )
-        .merge(crate::ui::routes())
         .layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT))
-        .with_state(state)
-        .layer(middleware::from_fn_with_state(token, authenticate))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(token, authenticate));
+    api.merge(crate::web::routes(&state.web_dir))
 }
 
 async fn authenticate(
@@ -55,32 +54,12 @@ async fn authenticate(
     let Some(expected) = token else {
         return Ok(next.run(request).await);
     };
-    let path = request.uri().path();
-    if path == "/login" || path.starts_with("/assets/") {
-        return Ok(next.run(request).await);
-    }
     let supplied = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    let cookie = headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|cookies| {
-            cookies.split(';').find_map(|cookie| {
-                let (name, value) = cookie.trim().split_once('=')?;
-                (name == "lattice_security_token").then_some(value)
-            })
-        });
-    if supplied != Some(expected.as_str()) && cookie != Some(expected.as_str()) {
-        if path.starts_with("/v1/") || path == "/healthz" {
-            return Err(ServiceError::Unauthorized);
-        }
-        let mut response = StatusCode::SEE_OTHER.into_response();
-        response
-            .headers_mut()
-            .insert(header::LOCATION, HeaderValue::from_static("/login"));
-        return Ok(response);
+    if supplied != Some(expected.as_str()) {
+        return Err(ServiceError::Unauthorized);
     }
     Ok(next.run(request).await)
 }
@@ -95,7 +74,7 @@ async fn health() -> Json<Health<'static>> {
 }
 
 async fn metadata(State(state): State<Arc<AppState>>) -> Json<crate::upstream::Metadata> {
-    Json(state.metadata.clone())
+    Json(state.application.metadata().clone())
 }
 
 async fn estimate(
@@ -106,47 +85,14 @@ async fn estimate(
     submit(&state, request).await
 }
 
-async fn sweep(
-    State(state): State<Arc<AppState>>,
-    payload: Result<Json<SweepRequest>, JsonRejection>,
-) -> Result<Response, ServiceError> {
-    let request = json_payload(payload)?;
-    let cases = crate::sweep::expand(&request)?;
-    let case_count = cases.len();
-    let mut batches = Vec::with_capacity(case_count.div_ceil(500));
-    for chunk in cases.chunks(500) {
-        let estimate = EstimateRequest {
-            cases: chunk.to_vec(),
-            mode: crate::EstimateMode::Normal,
-            timeout_seconds: request.timeout_seconds,
-            slow_attack_policy: request.slow_attack_policy.clone(),
-        };
-        batches.push(
-            state
-                .scheduler
-                .submit_staged(estimate, state.poll_after_seconds)
-                .await?,
-        );
-    }
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(crate::sweep::response(batches, case_count)),
-    )
-        .into_response())
-}
-
 async fn submit(state: &AppState, request: EstimateRequest) -> Result<Response, ServiceError> {
-    request.validate()?;
-    let (cached, snapshot) = state
-        .scheduler
-        .submit(request, state.poll_after_seconds)
-        .await?;
-    let status = if cached {
+    let submission = state.application.estimate(request).await?;
+    let status = if submission.fully_cached {
         StatusCode::OK
     } else {
         StatusCode::ACCEPTED
     };
-    snapshot_response(status, snapshot)
+    snapshot_response(status, submission.snapshot)
 }
 
 async fn batch(
@@ -154,10 +100,7 @@ async fn batch(
     Path(batch_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ServiceError> {
-    let snapshot = state
-        .database
-        .batch(&batch_id, state.poll_after_seconds)
-        .await?;
+    let snapshot = state.application.batch(&batch_id).await?;
     let etag = format!("\"{}\"", snapshot.revision);
     if headers
         .get(header::IF_NONE_MATCH)
@@ -175,6 +118,20 @@ async fn batch(
     snapshot_response(StatusCode::OK, snapshot)
 }
 
+async fn batches(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<crate::application::BatchRecord>>, ServiceError> {
+    Ok(Json(state.application.batches().await?))
+}
+
+async fn delete_batch(
+    State(state): State<Arc<AppState>>,
+    Path(batch_id): Path<String>,
+) -> Result<StatusCode, ServiceError> {
+    state.application.delete_batch(batch_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn snapshot_response(
     status: StatusCode,
     snapshot: BatchSnapshot,
@@ -188,21 +145,11 @@ fn snapshot_response(
     Ok(response)
 }
 
-async fn job(
-    State(state): State<Arc<AppState>>,
-    Path(job_id): Path<String>,
-) -> Result<impl IntoResponse, ServiceError> {
-    Ok(Json(state.database.job(&job_id).await?))
-}
-
 async fn cancel(
     State(state): State<Arc<AppState>>,
     Path(batch_id): Path<String>,
 ) -> Result<Response, ServiceError> {
-    let snapshot = state
-        .scheduler
-        .cancel(&batch_id, state.poll_after_seconds)
-        .await?;
+    let snapshot = state.application.cancel(&batch_id).await?;
     snapshot_response(StatusCode::OK, snapshot)
 }
 
@@ -210,24 +157,20 @@ async fn rerun(
     State(state): State<Arc<AppState>>,
     Path(batch_id): Path<String>,
 ) -> Result<Response, ServiceError> {
-    let request = state.database.batch_request(&batch_id).await?;
-    submit(&state, request).await
+    let submission = state.application.rerun(&batch_id).await?;
+    let status = if submission.fully_cached {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    };
+    snapshot_response(status, submission.snapshot)
 }
 
 async fn export_report(
     State(state): State<Arc<AppState>>,
     Path(batch_id): Path<String>,
 ) -> Result<Response, ServiceError> {
-    let snapshot = state
-        .database
-        .batch(&batch_id, state.poll_after_seconds)
-        .await?;
-    match snapshot.report {
-        Some(report) => Ok(Json(report).into_response()),
-        None => Err(ServiceError::Conflict(
-            "batch does not have an exportable report yet".to_owned(),
-        )),
-    }
+    Ok(Json(state.application.report(&batch_id).await?).into_response())
 }
 
 #[derive(Deserialize)]
@@ -254,15 +197,20 @@ async fn import_parameter_set(
 ) -> Result<Response, ServiceError> {
     let Query(query) = query.map_err(|error| ServiceError::BadRequest(error.to_string()))?;
     let parameter_set = json_payload(payload)?;
-    parameter_set.validate()?;
     let imported = state
-        .database
+        .application
         .import_parameter_set(
             parameter_set,
             matches!(query.conflict, ConflictPolicy::Replace),
         )
         .await?;
     Ok((StatusCode::CREATED, Json(imported)).into_response())
+}
+
+async fn parameter_sets(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<crate::application::ParameterSetSummary>>, ServiceError> {
+    Ok(Json(state.application.parameter_sets().await?))
 }
 
 fn json_payload<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, ServiceError> {
@@ -280,11 +228,19 @@ async fn export_parameter_set(
     Path(parameter_set_id): Path<String>,
 ) -> Result<impl IntoResponse, ServiceError> {
     Ok(Json(
-        state
-            .database
-            .export_parameter_set(&parameter_set_id)
-            .await?,
+        state.application.parameter_set(&parameter_set_id).await?,
     ))
+}
+
+async fn delete_parameter_set(
+    State(state): State<Arc<AppState>>,
+    Path(parameter_set_id): Path<String>,
+) -> Result<StatusCode, ServiceError> {
+    state
+        .application
+        .delete_parameter_set(&parameter_set_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn serve(listener: tokio::net::TcpListener, state: Arc<AppState>) -> std::io::Result<()> {
@@ -314,12 +270,4 @@ async fn shutdown_signal() {
         () = control_c => {}
         () = terminate => {}
     }
-}
-
-#[allow(dead_code)]
-fn empty_response(status: StatusCode) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .body(Body::empty())
-        .expect("static response")
 }

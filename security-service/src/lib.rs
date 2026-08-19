@@ -1,29 +1,30 @@
-//! Versioned public contracts for the lattice-security service.
+//! Lattice security domain, application use-cases, and transports.
 //!
-//! Contract types remain the source of truth for committed JSON schemas. The
-//! phase 2 modules provide the public HTTP service, SQLite state, scheduler,
-//! and the internal estimator client.
+//! `core` is the stable data/rules surface. Runtime modules remain internal so
+//! SQLite jobs and Sage process orchestration do not leak into clients.
 
 pub mod api;
-pub mod applicability;
-pub mod approximation;
-pub mod canonical;
-pub mod database;
-pub mod domain;
-pub mod error;
-pub mod formats;
-pub mod scheduler;
+mod applicability;
+pub mod application;
+mod canonical;
+pub mod cli;
+pub mod core;
+mod database;
+mod domain;
+mod error;
+mod formats;
+mod scheduler;
 pub mod service;
-pub mod sweep;
-pub mod ui;
-pub mod upstream;
-pub mod validation;
+mod upstream;
+mod validation;
+mod web;
 
 pub use applicability::*;
-pub use approximation::*;
 pub use canonical::{AttackCacheIdentity, EstimatorContext, canonical_json, stable_hash};
 pub use domain::*;
+pub use error::ServiceError;
 pub use formats::*;
+pub use upstream::Metadata;
 pub use validation::{Validate, ValidationError};
 
 /// Canonicalization rules used for cache and request identities.

@@ -31,7 +31,6 @@ from .models import (
     NoFiniteEstimateOutcome,
     NormalizedMetric,
     NtruProblem,
-    ResultRole,
     SisNorm,
     SisProblem,
     SparseTernary,
@@ -41,7 +40,6 @@ from .models import (
     UniformTernary,
     WorkerResponse,
 )
-from .planner import resolve_plan
 
 PUBLIC_TO_UPSTREAM = {
     Attack.ARORA_GB: "arora-gb",
@@ -58,10 +56,9 @@ PUBLIC_TO_UPSTREAM = {
 
 
 def execute(request: EstimateRequest) -> WorkerResponse:
-    """Execute one dependency-complete estimator plan in this Sage process."""
+    """Run exactly the attacks requested by the Rust scheduler."""
 
     started = time.monotonic()
-    plan = resolve_plan(request.problem, request.target_attacks)
     captured_stdout = io.StringIO()
     captured_stderr = io.StringIO()
     try:
@@ -69,14 +66,13 @@ def execute(request: EstimateRequest) -> WorkerResponse:
             contextlib.redirect_stdout(captured_stdout),
             contextlib.redirect_stderr(captured_stderr),
         ):
-            raw_results = _run_estimator(request, plan.executed)
+            raw_results = _run_estimator(request, request.target_attacks)
     except Exception as error:  # noqa: BLE001 - normalize the unstable upstream boundary
         audit = _audit_capture(captured_stdout, captured_stderr)
         audit["exception_type"] = type(error).__name__
         results = [
             AttackExecution(
                 attack=attack,
-                role=_role(attack, plan.target),
                 outcome=FailedOutcome(
                     kind="failed",
                     code="estimator_exception",
@@ -85,16 +81,15 @@ def execute(request: EstimateRequest) -> WorkerResponse:
                     raw_result=audit,
                 ),
             )
-            for attack in plan.executed
+            for attack in request.target_attacks
         ]
     else:
         audit = _audit_capture(captured_stdout, captured_stderr)
         results = [
-            _normalize_attack(attack, plan.target, raw_results, audit) for attack in plan.executed
+            _normalize_attack(attack, raw_results, audit) for attack in request.target_attacks
         ]
 
     return WorkerResponse(
-        plan=plan,
         results=results,
         duration_ms=max(0, round((time.monotonic() - started) * 1_000)),
     )
@@ -209,17 +204,14 @@ def _distribution(distribution: Any, logical_length: int | None) -> Any:
 
 def _normalize_attack(
     attack: Attack,
-    targets: list[Attack],
     raw_results: dict[str, Any],
     audit: dict[str, Any],
 ) -> AttackExecution:
     upstream_name = PUBLIC_TO_UPSTREAM[attack]
     raw = raw_results.get(upstream_name)
-    role = _role(attack, targets)
     if raw is None:
         return AttackExecution(
             attack=attack,
-            role=role,
             outcome=FailedOutcome(
                 kind="failed",
                 code="estimator_no_result",
@@ -234,7 +226,6 @@ def _normalize_attack(
     if security_bits is None:
         return AttackExecution(
             attack=attack,
-            role=role,
             outcome=NoFiniteEstimateOutcome(
                 kind="no_finite_estimate",
                 code="no_finite_rop",
@@ -253,7 +244,6 @@ def _normalize_attack(
                 metrics[str(key)] = metric
     return AttackExecution(
         attack=attack,
-        role=role,
         outcome=ComputedOutcome(kind="computed", security_bits=security_bits, metrics=metrics),
     )
 
@@ -309,10 +299,6 @@ def _canonical_decimal(value: Any) -> str:
     if text in {"-0", ""}:
         return "0"
     return text
-
-
-def _role(attack: Attack, targets: list[Attack]) -> ResultRole:
-    return ResultRole.TARGET if attack in targets else ResultRole.SUPPORT
 
 
 def _audit_capture(stdout: io.StringIO, stderr: io.StringIO) -> dict[str, Any]:

@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from estimator_api.models import Attack, EstimateRequest, attacks_for_problem
-from estimator_api.planner import resolve_plan
 
 
 def request_data() -> dict[str, object]:
@@ -60,15 +59,6 @@ def test_lwe_exposes_fast_and_adaptive_slow_attacks() -> None:
     )
     assert Attack("arora_gb") is Attack.ARORA_GB
     assert Attack("bkw") is Attack.BKW
-
-
-def test_dependency_closure_marks_support_attacks() -> None:
-    request = request_model()
-    request = request.model_copy(update={"target_attacks": [Attack.BDD_MITM_HYBRID]})
-    plan = resolve_plan(request.problem, request.target_attacks)
-    assert plan.target == [Attack.BDD_MITM_HYBRID]
-    assert plan.support == [Attack.BDD, Attack.BDD_HYBRID]
-    assert plan.executed == [Attack.BDD, Attack.BDD_HYBRID, Attack.BDD_MITM_HYBRID]
 
 
 @pytest.mark.parametrize(

@@ -230,10 +230,6 @@ NTRU_ATTACKS = (
 )
 SIS_ATTACKS = (Attack.LATTICE,)
 ATTACKS_BY_PROBLEM = {"lwe": LWE_ATTACKS, "ntru": NTRU_ATTACKS, "sis": SIS_ATTACKS}
-DEPENDENCY_GRAPH = {
-    Attack.BDD_HYBRID: (Attack.BDD,),
-    Attack.BDD_MITM_HYBRID: (Attack.BDD_HYBRID,),
-}
 EXACT_DISTRIBUTIONS = (
     "uniform_binary",
     "uniform_ternary",
@@ -276,13 +272,6 @@ class EstimateRequest(StrictModel):
                 f"attacks are not valid for {self.problem.kind}: {', '.join(unsupported)}"
             )
         return self
-
-
-class AttackPlan(StrictModel):
-    dependency_graph_version: Literal[1] = 1
-    target: list[Attack]
-    support: list[Attack]
-    executed: list[Attack]
 
 
 class IntegerMetric(StrictModel):
@@ -345,14 +334,8 @@ WorkerOutcome: TypeAlias = Annotated[
 ]
 
 
-class ResultRole(str, Enum):
-    TARGET = "target"
-    SUPPORT = "support"
-
-
 class AttackExecution(StrictModel):
     attack: Attack
-    role: ResultRole
     outcome: WorkerOutcome
 
 
@@ -361,13 +344,11 @@ class EstimatorProvenance(StrictModel):
     sage_version: str
     adapter_version: str
     adapter_schema_version: PositiveU64
-    dependency_graph_version: PositiveU64
     worker_image: str
 
 
 class EstimateResponse(StrictModel):
     schema_version: Literal[ADAPTER_SCHEMA_VERSION] = ADAPTER_SCHEMA_VERSION
-    plan: AttackPlan
     results: list[AttackExecution]
     duration_ms: NonNegativeU64
     provenance: EstimatorProvenance
@@ -375,7 +356,6 @@ class EstimateResponse(StrictModel):
 
 class WorkerResponse(StrictModel):
     schema_version: Literal[ADAPTER_SCHEMA_VERSION] = ADAPTER_SCHEMA_VERSION
-    plan: AttackPlan
     results: list[AttackExecution]
     duration_ms: NonNegativeU64
 
@@ -394,13 +374,11 @@ class SupportMatrixEntry(StrictModel):
 class MetadataResponse(StrictModel):
     adapter_version: str
     adapter_schema_version: PositiveU64
-    dependency_graph_version: PositiveU64
     estimator_commit: str
     sage_version: str
     worker_image: str
     platform: Literal["linux/amd64"]
     support_matrix: dict[str, SupportMatrixEntry]
-    dependency_graph: dict[Attack, list[Attack]]
     adaptive_attacks: list[Attack]
 
 

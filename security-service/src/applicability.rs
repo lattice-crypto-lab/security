@@ -47,7 +47,7 @@ impl SlowAttackApplicability {
     }
 }
 
-/// Classify a slow attack before consulting a calibrated approximation or Sage.
+/// Classify a slow attack before deciding whether Sage needs to run it.
 pub fn slow_attack_applicability(
     problem: &EstimatorProblem,
     attack: Attack,
@@ -91,7 +91,7 @@ fn arora_gb_applicability(problem: &LweProblem) -> SlowAttackApplicability {
                 return SlowAttackApplicability::borderline(
                     "arora_gaussian_borderline",
                     format!(
-                        "Gaussian-like error has n={} and sigma={standard_deviation} inside the calibrated borderline domain",
+                        "Gaussian-like error has n={} and sigma={standard_deviation} inside the conservative borderline domain",
                         problem.dimension
                     ),
                 );
@@ -119,7 +119,7 @@ fn arora_gb_applicability(problem: &LweProblem) -> SlowAttackApplicability {
                 return SlowAttackApplicability::borderline(
                     "arora_bounded_borderline",
                     format!(
-                        "bounded error support width D={width} and n={} are inside the calibrated borderline domain",
+                        "bounded error support width D={width} and n={} are inside the conservative borderline domain",
                         problem.dimension
                     ),
                 );
@@ -155,7 +155,7 @@ fn bkw_applicability(problem: &LweProblem) -> SlowAttackApplicability {
         return SlowAttackApplicability::borderline(
             "bkw_small_parameter_borderline",
             format!(
-                "n={} and q={modulus} are inside the calibrated BKW borderline domain",
+                "n={} and q={modulus} are inside the conservative BKW borderline domain",
                 problem.dimension
             ),
         );

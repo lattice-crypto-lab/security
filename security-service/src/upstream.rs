@@ -4,9 +4,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApproximationMetadata, Attack, EstimatorContext, EstimatorProblem, ExactDecimal,
-    NormalizedMetric, ReductionCostModel, ReductionShapeModel, ResolvedAnalysisSettings,
-    error::ServiceError,
+    Attack, EstimatorContext, EstimatorProblem, ExactDecimal, NormalizedMetric, ReductionCostModel,
+    ReductionShapeModel, ResolvedAnalysisSettings, error::ServiceError,
 };
 
 #[derive(Clone)]
@@ -15,22 +14,18 @@ pub struct EstimatorClient {
     base_url: Url,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metadata {
     pub adapter_schema_version: u64,
-    pub dependency_graph_version: u64,
     pub estimator_commit: String,
     pub sage_version: String,
     pub adapter_version: String,
     pub worker_image: String,
     pub platform: String,
     pub support_matrix: serde_json::Value,
-    pub dependency_graph: serde_json::Value,
     pub adaptive_attacks: Vec<Attack>,
     #[serde(default)]
     pub slow_attack_applicability_rule_version: u32,
-    #[serde(default)]
-    pub approximation: ApproximationMetadata,
 }
 
 impl Metadata {
@@ -98,15 +93,7 @@ pub struct WorkerProvenance {
 #[derive(Clone, Debug, Deserialize)]
 pub struct WorkerAttackExecution {
     pub attack: Attack,
-    pub role: ResultRole,
     pub outcome: WorkerOutcome,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResultRole {
-    Target,
-    Support,
 }
 
 #[derive(Clone, Debug, Deserialize)]

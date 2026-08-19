@@ -55,7 +55,7 @@ jobs:
             if grep -Eq '^(estimator-api/|estimator$|\.gitmodules$|\.dockerignore$)' <<<"${changed_files}"; then
               estimator_changed=true
             fi
-            if grep -Eq '^(security-service/|rust-toolchain\.toml$|\.dockerignore$)' <<<"${changed_files}"; then
+            if grep -Eq '^(security-service/|web/|rust-toolchain\.toml$|\.dockerignore$)' <<<"${changed_files}"; then
               security_changed=true
             fi
           fi
