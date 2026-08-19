@@ -9,6 +9,7 @@ from test_models import request_model
 from estimator_api.adapter import (
     _canonical_decimal,
     _distribution,
+    _log2_cost,
     _normalize_attack,
     _run_estimator,
 )
@@ -60,6 +61,25 @@ class FakeLwe:
         return {}
 
 
+class FakeReal:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def log(self, base: int) -> float:
+        import math
+
+        assert base == 2
+        return math.log2(self.value)  # type: ignore[arg-type]
+
+
+class FakeRealField:
+    def __init__(self, _precision: int) -> None:
+        pass
+
+    def __call__(self, value: object) -> FakeReal:
+        return FakeReal(value)
+
+
 @pytest.fixture(autouse=True)
 def fake_estimator(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
@@ -75,7 +95,11 @@ def fake_estimator(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     monkeypatch.setitem(sys.modules, "sage", SimpleNamespace())
-    monkeypatch.setitem(sys.modules, "sage.all", SimpleNamespace(oo=object()))
+    monkeypatch.setitem(
+        sys.modules,
+        "sage.all",
+        SimpleNamespace(oo=object(), RealField=FakeRealField),
+    )
 
 
 @pytest.mark.parametrize(
@@ -127,6 +151,20 @@ def test_canonical_decimal_does_not_round_through_binary_float() -> None:
     )
     assert _canonical_decimal("1.2300") == "1.23"
     assert _canonical_decimal("-0.0") == "0"
+
+
+def test_finite_exact_rop_is_converted_to_numeric_security_bits() -> None:
+    assert _log2_cost(2**40) == "40"
+    assert _log2_cost(2**4096) == "4096"
+
+    execution = _normalize_attack(
+        Attack.BKW,
+        [Attack.BKW],
+        {"bkw": {"rop": 2**40, "tag": "coded-bkw"}},
+        {},
+    )
+    assert execution.outcome.kind == "computed"
+    assert execution.outcome.security_bits == "40"
 
 
 def test_fast_lwe_plan_denies_slow_upstream_attacks() -> None:

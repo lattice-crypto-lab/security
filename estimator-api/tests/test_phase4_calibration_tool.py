@@ -18,6 +18,15 @@ def load_tool() -> Any:
 tool = load_tool()
 
 
+def context(adapter_version: str = "3") -> dict[str, str]:
+    return {
+        "estimator_commit": "estimator-commit",
+        "sage_version": "10.9",
+        "adapter_version": adapter_version,
+        "worker_image": "sage-image",
+    }
+
+
 def test_plan_expansion_is_a_cartesian_product() -> None:
     plan = {
         "format": tool.PLAN_FORMAT,
@@ -38,6 +47,30 @@ def test_plan_expansion_is_a_cartesian_product() -> None:
     assert {request["target_attacks"][0] for request in requests} == {"arora_gb", "bkw"}
 
 
+def test_observation_identity_tracks_estimator_provenance_but_not_timeout() -> None:
+    plan = {
+        "format": tool.PLAN_FORMAT,
+        "version": 1,
+        "attacks": ["bkw"],
+        "timeout_seconds": 60,
+        "models": [{"cost_model": "BDGL16", "shape_model": "GSA"}],
+        "axes": {
+            "dimension": [64],
+            "modulus": ["512"],
+            "samples": [{"kind": "unlimited"}],
+            "secret": [{"kind": "uniform_binary"}],
+            "error_standard_deviation": ["2.5"],
+        },
+    }
+    request = next(iter(tool.requests_from_plan(plan)))
+    identity = tool.observation_identity(request, context())
+    changed_timeout = json.loads(json.dumps(request))
+    changed_timeout["timeout_seconds"] = 120
+
+    assert tool.observation_identity(changed_timeout, context()) == identity
+    assert tool.observation_identity(request, context("4")) != identity
+
+
 def test_checked_in_v1_plan_has_buildable_holdout_groups() -> None:
     root = Path(__file__).parents[2]
     plan = json.loads(
@@ -56,8 +89,9 @@ def test_checked_in_v1_plan_has_buildable_holdout_groups() -> None:
         }
         groups.setdefault(tool.group_key(value), []).append(value)
 
-    assert len(requests) == 400
-    assert len(groups) == 4
+    assert len(requests) == 200
+    assert len(groups) == 2
+    assert {request["target_attacks"][0] for request in requests} == {"bkw"}
     assert {request["problem"]["dimension"] for request in requests} == {64, 80, 96, 128}
     assert {request["problem"]["modulus"] for request in requests} == {
         "32",

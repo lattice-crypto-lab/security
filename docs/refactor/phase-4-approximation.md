@@ -51,17 +51,29 @@ docker compose -f compose.yaml -f compose.calibration.yaml run --rm calibration 
   --estimator-url http://estimator-api:8000
 ```
 
-The checked-in classical-only v1 plan contains 400 attack observations in the
-Gaussian borderline shared by the v1 rules: dimensions 64, 80, 96, and 128;
-moduli 32 through 512; standard deviations 2.5 through 4; and both supported
-secret families. Migrated BabyBear and Primus parameters remain regression
-fixtures for deterministic applicability exclusion instead of expensive model
-labels because they are far outside the reviewed slow-attack domain. The
-accepted artifact's actual domain is derived only from successfully computed
-observations. An estimator infinity is stored as the terminal, auditable
-`no_finite_estimate` outcome and is never used as a training label. Each
-observation may run for up to 3,600 seconds, so collection can take a long
-time. Re-running the same command resumes completed observations. Transient
+The checked-in classical-only v1 candidate plan contains 200 BKW observations:
+dimensions 64, 80, 96, and 128; moduli 32 through 512; standard deviations 2.5
+through 4; and both supported secret families. An initial Linux probe also ran
+the same 200 points for Arora-GB; every upstream result had infinite ROP, so
+those points are retained as negative audit data and are not presented as a
+numeric approximation model. Arora-GB remains a public attack and requires a
+separately reviewed calibration domain before it can gain approximation groups.
+
+Adapter v3 is required for collection. Adapter v2 attempted to convert an
+exact Sage ROP through a symbolic logarithm and consequently misclassified
+finite BKW costs as `no_finite_estimate`. V3 performs the logarithm in a
+high-precision real field. Observation identity also includes estimator/Sage
+provenance, so a changed adapter automatically reruns matching requests instead
+of treating stale rows as complete.
+
+Migrated BabyBear and Primus parameters remain regression fixtures for
+deterministic applicability exclusion instead of expensive model labels because
+they are far outside the reviewed slow-attack domain. The accepted artifact's
+actual domain is derived only from successfully computed observations. An
+estimator infinity is stored as the terminal, auditable `no_finite_estimate`
+outcome and is never used as a training label. Each observation may run for up
+to 3,600 seconds, so collection can take a long time. Re-running the same
+command resumes completed observations with the same provenance. Transient
 collection failures and timeouts remain eligible for retry; computed,
 no-finite, and definitively unsupported rows are skipped.
 

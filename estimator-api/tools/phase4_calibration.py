@@ -36,6 +36,12 @@ POINT_FIELDS = {
     "secret",
     "error_standard_deviation",
 }
+PROVENANCE_FIELDS = (
+    "estimator_commit",
+    "sage_version",
+    "adapter_version",
+    "worker_image",
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -157,6 +163,26 @@ def existing_identities(path: Path) -> set[str]:
     return identities
 
 
+def get_json(url: str) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        value = json.load(response)
+    if not isinstance(value, dict):
+        raise TypeError(f"expected a JSON object from {url}")
+    return value
+
+
+def provenance_context(value: dict[str, Any]) -> dict[str, str]:
+    context = {field: value.get(field) for field in PROVENANCE_FIELDS}
+    if not all(isinstance(item, str) and item for item in context.values()):
+        raise ValueError("estimator metadata is missing calibration provenance")
+    return context  # type: ignore[return-value]
+
+
+def observation_identity(request: dict[str, Any], context: dict[str, str]) -> str:
+    normalized_request = {key: value for key, value in request.items() if key != "timeout_seconds"}
+    return sha256_identity({"request": normalized_request, "estimator_context": context})
+
+
 def post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
@@ -176,14 +202,13 @@ def collect(plan_path: Path, output: Path, estimator_url: str) -> None:
     plan = load_json(plan_path)
     completed = existing_identities(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    endpoint = estimator_url.rstrip("/") + "/v1/estimate"
+    base_url = estimator_url.rstrip("/")
+    endpoint = base_url + "/v1/estimate"
+    context = provenance_context(get_json(base_url + "/v1/metadata"))
     requests = list(requests_from_plan(plan))
     with output.open("a", encoding="utf-8", newline="\n") as target:
         for index, request in enumerate(requests, start=1):
-            identity_payload = {
-                key: value for key, value in request.items() if key != "timeout_seconds"
-            }
-            identity = sha256_identity(identity_payload)
+            identity = observation_identity(request, context)
             if identity in completed:
                 continue
             print(
@@ -193,6 +218,8 @@ def collect(plan_path: Path, output: Path, estimator_url: str) -> None:
             collected_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             try:
                 response = post_json(endpoint, request)
+                if provenance_context(response["provenance"]) != context:
+                    raise ValueError("estimate provenance changed during calibration collection")
                 result = next(
                     item
                     for item in response["results"]

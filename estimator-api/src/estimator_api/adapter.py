@@ -262,11 +262,20 @@ def _log2_cost(value: Any) -> str | None:
     if value is None:
         return None
     try:
-        if value <= 0 or not math.isfinite(float(value)):
+        if value <= 0:
             return None
-        from sage.all import log  # type: ignore[import-not-found]
+        from sage.all import RealField  # type: ignore[import-not-found]
 
-        return _canonical_decimal(log(value, 2))
+        # ``value`` is commonly an exact Sage Integer. ``log(value, 2)`` then
+        # remains a symbolic expression, whose string cannot be parsed as a
+        # canonical decimal. Coerce the cost to a high-precision real first so
+        # the logarithm is numeric. Checking the logarithm instead of
+        # ``float(value)`` also preserves finite costs larger than the IEEE-754
+        # exponent range.
+        security_bits = RealField(256)(value).log(2)
+        if not math.isfinite(float(security_bits)):
+            return None
+        return _canonical_decimal(security_bits)
     except (ArithmeticError, TypeError, ValueError, OverflowError):
         return None
 

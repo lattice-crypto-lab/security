@@ -1,7 +1,7 @@
 {
   "format": "lattice-security/slow-attack-calibration-plan",
   "version": 1,
-  "attacks": ["arora_gb", "bkw"],
+  "attacks": ["bkw"],
   "timeout_seconds": 3600,
   "models": [
     { "cost_model": "BDGL16", "shape_model": "GSA" }
