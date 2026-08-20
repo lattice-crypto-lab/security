@@ -109,6 +109,10 @@ pub struct SecurityReportFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EstimateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_set_id: Option<String>,
     pub cases: Vec<ParameterCase>,
     #[serde(default)]
     pub mode: EstimateMode,
@@ -131,6 +135,14 @@ pub enum EstimateMode {
 pub struct SlowAttackPolicy {
     pub required_security_bits: ExactDecimal,
     pub stop_margin_bits: ExactDecimal,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forced_attacks: Vec<Attack>,
+}
+
+impl SlowAttackPolicy {
+    pub fn forces(&self, attack: Attack) -> bool {
+        self.forced_attacks.contains(&attack)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

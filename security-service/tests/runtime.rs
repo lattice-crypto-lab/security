@@ -73,6 +73,37 @@ async fn fast_results_can_skip_slow_attacks_and_the_second_run_is_cached() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn explicitly_forced_slow_attacks_bypass_policy_and_keep_using_cache() {
+    let harness = harness("196", Duration::from_millis(10), None).await;
+    let mut request = estimate_request("128");
+    request.name = Some("Forced slow-attack check".to_owned());
+    request.parameter_set_id = Some("slow-attack-check".to_owned());
+    request.slow_attack_policy.as_mut().unwrap().forced_attacks = vec![
+        lattice_security::Attack::AroraGb,
+        lattice_security::Attack::Bkw,
+    ];
+
+    let first = json_request(&harness.app, "POST", "/v1/estimates", &request, None).await;
+    assert_eq!(first.0, StatusCode::ACCEPTED);
+    let batch_id = first.1["batch_id"].as_str().unwrap();
+    let completed = wait_for_terminal(&harness.app, batch_id).await;
+    assert_eq!(completed["state"]["kind"], "completed");
+    let plans = harness.plans.lock().unwrap().clone();
+    assert!(plans.contains(&vec!["arora_gb".to_owned()]));
+    assert!(plans.contains(&vec!["bkw".to_owned()]));
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        completed["report"]["name"],
+        "Forced slow-attack check security report"
+    );
+    assert_eq!(completed["report"]["parameter_set_id"], "slow-attack-check");
+
+    let second = json_request(&harness.app, "POST", "/v1/estimates", &request, None).await;
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(harness.calls.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn low_fast_result_runs_independent_slow_attack_plans() {
     let harness = harness("96", Duration::from_millis(20), None).await;
     let submitted = json_request(

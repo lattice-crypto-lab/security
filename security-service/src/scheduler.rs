@@ -226,9 +226,12 @@ impl Runner {
             })?;
             for attack in slow_attacks_for_problem(&case.problem) {
                 let key = context.cache_identity(*attack).hash();
-                if self.database.cached_outcome(&key).await?.is_some()
-                    || context.applicability(*attack)?.level == ApplicabilityLevel::Inapplicable
-                    || fast_results_meet_stop_threshold(&cached, policy)
+                if self.database.cached_outcome(&key).await?.is_some() {
+                    continue;
+                }
+                if !policy.forces(*attack)
+                    && (context.applicability(*attack)?.level == ApplicabilityLevel::Inapplicable
+                        || fast_results_meet_stop_threshold(&cached, policy))
                 {
                     continue;
                 }
@@ -284,10 +287,10 @@ impl Runner {
             .copied()
             .filter(|attack| !results.contains_key(attack))
             .collect::<Vec<_>>();
-        let slow_candidates =
-            self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
 
         let control = if work.request.mode == EstimateMode::Rough {
+            let slow_candidates =
+                self.apply_applicability_skips(&context, &missing_slow, &mut results)?;
             for attack in slow_candidates {
                 results.entry(attack).or_insert_with(|| AttackResult {
                     attack,
@@ -303,8 +306,14 @@ impl Runner {
             let policy = work.request.slow_attack_policy.as_ref().ok_or_else(|| {
                 ServiceError::Internal("missing validated slow attack policy".to_owned())
             })?;
+            let (forced, automatic): (Vec<_>, Vec<_>) = missing_slow
+                .into_iter()
+                .partition(|attack| policy.forces(*attack));
+            let automatic_candidates =
+                self.apply_applicability_skips(&context, &automatic, &mut results)?;
+            let mut slow_candidates = forced;
             if fast_results_meet_stop_threshold(&results, policy) {
-                for attack in slow_candidates {
+                for attack in automatic_candidates {
                     results.insert(
                         attack,
                         AttackResult {
@@ -322,8 +331,10 @@ impl Runner {
                         },
                     );
                 }
-                WorkerControl::Completed
-            } else if slow_candidates.is_empty() {
+            } else {
+                slow_candidates.extend(automatic_candidates);
+            }
+            if slow_candidates.is_empty() {
                 WorkerControl::Completed
             } else {
                 let plans = slow_candidates
@@ -822,6 +833,35 @@ impl Runner {
                     .to_owned(),
             );
         }
+        if let Some(policy) = &work.request.slow_attack_policy
+            && !policy.forced_attacks.is_empty()
+        {
+            let attacks = policy
+                .forced_attacks
+                .iter()
+                .map(|attack| slow_attack_label(*attack))
+                .collect::<Vec<_>>()
+                .join(", ");
+            warnings.push(format!(
+                "slow attacks were explicitly forced ({attacks}); applicability and fast-estimate stop rules were bypassed"
+            ));
+            for attack in &policy.forced_attacks {
+                let applicability = context
+                    .applicability(*attack)
+                    .expect("forced slow attacks have applicability rules");
+                let level = match applicability.level {
+                    ApplicabilityLevel::Applicable => "applicable",
+                    ApplicabilityLevel::Borderline => "borderline",
+                    ApplicabilityLevel::Inapplicable => "inapplicable",
+                };
+                warnings.push(format!(
+                    "policy audit for {}: {level}/{} — {}",
+                    slow_attack_label(*attack),
+                    applicability.code,
+                    applicability.reason
+                ));
+            }
+        }
         SecurityReportEntry {
             case: work.case.clone(),
             request_hash,
@@ -870,6 +910,7 @@ impl Runner {
 
     async fn refresh_batch(&self, batch_id: &str) -> Result<(), ServiceError> {
         let batch = self.database.batch(batch_id, 1).await?;
+        let request = self.database.batch_request(batch_id).await?;
         let mut states = Vec::with_capacity(batch.job_ids.len());
         for job_id in &batch.job_ids {
             states.push(self.database.job(job_id).await?.state);
@@ -918,8 +959,12 @@ impl Runner {
             format: "lattice-security/security-report".to_owned(),
             version: 1,
             id: format!("{batch_id}-report"),
-            name: format!("Security report {batch_id}"),
-            parameter_set_id: None,
+            name: request
+                .name
+                .as_ref()
+                .map(|name| format!("{name} security report"))
+                .unwrap_or_else(|| format!("Security report {batch_id}")),
+            parameter_set_id: request.parameter_set_id,
             reports,
         };
         let report = (!report.reports.is_empty()).then_some(report);
@@ -1026,6 +1071,14 @@ fn fast_results_meet_stop_threshold(
         })
 }
 
+fn slow_attack_label(attack: Attack) -> &'static str {
+    match attack {
+        Attack::AroraGb => "arora_gb",
+        Attack::Bkw => "bkw",
+        _ => unreachable!("only adaptive slow attacks have labels"),
+    }
+}
+
 fn insert_timeouts(
     attacks: &[Attack],
     timeout_seconds: u64,
@@ -1080,6 +1133,7 @@ mod tests {
         let policy = crate::SlowAttackPolicy {
             required_security_bits: crate::ExactDecimal::new("128").unwrap(),
             stop_margin_bits: crate::ExactDecimal::new("16").unwrap(),
+            forced_attacks: Vec::new(),
         };
         let results = |bits: &str| {
             BTreeMap::from([(

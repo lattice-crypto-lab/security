@@ -44,10 +44,16 @@ export type ParameterSet = {
 };
 
 export type EstimateRequest = {
+  name?: string;
+  parameter_set_id?: string;
   cases: ParameterCase[];
   mode: 'rough' | 'normal';
   timeout_seconds: number;
-  slow_attack_policy?: { required_security_bits: string; stop_margin_bits: string };
+  slow_attack_policy?: {
+    required_security_bits: string;
+    stop_margin_bits: string;
+    forced_attacks?: Array<'arora_gb' | 'bkw'>;
+  };
 };
 
 export type AttackResult = {

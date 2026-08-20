@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use num_traits::One;
 use schemars::JsonSchema;
@@ -158,6 +158,14 @@ impl Validate for SecurityReportFile {
 
 impl Validate for EstimateRequest {
     fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(name) = &self.name
+            && name.trim().is_empty()
+        {
+            return Err(ValidationError::new("name", "run name must not be empty"));
+        }
+        if let Some(parameter_set_id) = &self.parameter_set_id {
+            validate_identifier(parameter_set_id, "parameter_set_id")?;
+        }
         if self.cases.is_empty() || self.cases.len() > 500 {
             return Err(ValidationError::new(
                 "cases",
@@ -193,6 +201,21 @@ impl Validate for EstimateRequest {
                     "slow_attack_policy.stop_margin_bits",
                     "stop margin cannot be negative",
                 ));
+            }
+            let mut forced = BTreeSet::new();
+            for (index, attack) in policy.forced_attacks.iter().enumerate() {
+                if !matches!(attack, crate::Attack::AroraGb | crate::Attack::Bkw) {
+                    return Err(ValidationError::new(
+                        format!("slow_attack_policy.forced_attacks[{index}]"),
+                        "only arora_gb and bkw can be forced slow attacks",
+                    ));
+                }
+                if !forced.insert(*attack) {
+                    return Err(ValidationError::new(
+                        format!("slow_attack_policy.forced_attacks[{index}]"),
+                        "forced slow attacks must be unique",
+                    ));
+                }
             }
         }
         let mut ids = HashSet::new();

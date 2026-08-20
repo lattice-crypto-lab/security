@@ -17,6 +17,8 @@
   let timeout = 3600;
   let requiredBits = '128';
   let marginBits = '16';
+  let forceAroraGb = false;
+  let forceBkw = false;
   let busy = false;
   let message = '';
   let messageIsError = false;
@@ -59,12 +61,23 @@
   }
 
   function request(): EstimateRequest {
+    const forcedAttacks: Array<'arora_gb' | 'bkw'> = [];
+    if (forceAroraGb) forcedAttacks.push('arora_gb');
+    if (forceBkw) forcedAttacks.push('bkw');
     return {
+      ...(setName.trim() ? { name: setName.trim() } : {}),
+      ...(selected ? { parameter_set_id: selected } : {}),
       cases: drafts.map(caseFromDraft),
       mode,
       timeout_seconds: timeout,
       ...(mode === 'normal'
-        ? { slow_attack_policy: { required_security_bits: requiredBits, stop_margin_bits: marginBits } }
+        ? {
+          slow_attack_policy: {
+            required_security_bits: requiredBits,
+            stop_margin_bits: marginBits,
+            ...(forcedAttacks.length ? { forced_attacks: forcedAttacks } : {}),
+          }
+        }
         : {}),
     };
   }
@@ -231,6 +244,13 @@
           <label>超时（秒）<input type="number" min="1" max="7200" bind:value={timeout} /></label>
           {#if mode === 'normal'}<label>目标安全 bit<input bind:value={requiredBits} /></label><label>慢攻击跳过余量<input bind:value={marginBits} /></label>{/if}
         </div>
+        {#if mode === 'normal'}
+          <div class="force-options">
+            <span><strong>手动运行慢攻击</strong><small>绕过适用域与安全余量判断；可能耗时很久，已有成功结果仍会使用缓存。</small></span>
+            <label class="check-option"><input type="checkbox" bind:checked={forceAroraGb} /> 强制 Arora-GB</label>
+            <label class="check-option"><input type="checkbox" bind:checked={forceBkw} /> 强制 BKW</label>
+          </div>
+        {/if}
       </section>
 
       <div class="actions editor-actions">

@@ -10,15 +10,27 @@
   let timeout = 3600;
   let requiredBits = '128';
   let marginBits = '16';
+  let forceAroraGb = false;
+  let forceBkw = false;
   let setId = 'my-scheme';
   let setName = 'My scheme';
   let busy = false;
   let message = '';
 
   function request(): EstimateRequest {
+    const forcedAttacks: Array<'arora_gb' | 'bkw'> = [];
+    if (forceAroraGb) forcedAttacks.push('arora_gb');
+    if (forceBkw) forcedAttacks.push('bkw');
     return {
+      ...(setName.trim() ? { name: setName.trim() } : {}),
       cases: drafts.map(caseFromDraft), mode, timeout_seconds: timeout,
-      ...(mode === 'normal' ? { slow_attack_policy: { required_security_bits: requiredBits, stop_margin_bits: marginBits } } : {})
+      ...(mode === 'normal' ? {
+        slow_attack_policy: {
+          required_security_bits: requiredBits,
+          stop_margin_bits: marginBits,
+          ...(forcedAttacks.length ? { forced_attacks: forcedAttacks } : {}),
+        }
+      } : {})
     };
   }
 
@@ -80,6 +92,13 @@
     <label>方案 ID<input bind:value={setId} /></label>
     <label>方案名称<input bind:value={setName} /></label>
   </div>
+  {#if mode === 'normal'}
+    <div class="force-options">
+      <span><strong>手动运行慢攻击</strong><small>绕过适用域与安全余量判断；可能耗时很久，已有成功结果仍会使用缓存。</small></span>
+      <label class="check-option"><input type="checkbox" bind:checked={forceAroraGb} /> 强制 Arora-GB</label>
+      <label class="check-option"><input type="checkbox" bind:checked={forceBkw} /> 强制 BKW</label>
+    </div>
+  {/if}
   <div class="actions"><button class="secondary" disabled={busy} on:click={save}>保存为方案</button><button class="primary" disabled={busy} on:click={run}>{busy ? '处理中…' : '开始估算'}</button></div>
   {#if message}<p class="notice">{message}</p>{/if}
 </section>

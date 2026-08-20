@@ -243,6 +243,8 @@ fn lwe_run_requires_explicit_slow_attack_preflight_policy() {
     )
     .unwrap();
     let mut request = EstimateRequest {
+        name: None,
+        parameter_set_id: None,
         cases: parameter_set.cases,
         mode: lattice_security::EstimateMode::Normal,
         timeout_seconds: 600,
@@ -253,6 +255,7 @@ fn lwe_run_requires_explicit_slow_attack_preflight_policy() {
     request.slow_attack_policy = Some(SlowAttackPolicy {
         required_security_bits: decimal("128"),
         stop_margin_bits: decimal("16"),
+        forced_attacks: Vec::new(),
     });
     request.validate().unwrap();
 
@@ -270,6 +273,20 @@ fn lwe_run_requires_explicit_slow_attack_preflight_policy() {
         .as_mut()
         .unwrap()
         .stop_margin_bits = decimal("0");
+    request.validate().unwrap();
+
+    request.slow_attack_policy.as_mut().unwrap().forced_attacks = vec![Attack::Usvp];
+    assert_eq!(
+        request.validate().unwrap_err().path,
+        "slow_attack_policy.forced_attacks[0]"
+    );
+    request.slow_attack_policy.as_mut().unwrap().forced_attacks = vec![Attack::Bkw, Attack::Bkw];
+    assert_eq!(
+        request.validate().unwrap_err().path,
+        "slow_attack_policy.forced_attacks[1]"
+    );
+    request.slow_attack_policy.as_mut().unwrap().forced_attacks =
+        vec![Attack::AroraGb, Attack::Bkw];
     request.validate().unwrap();
 
     request.mode = lattice_security::EstimateMode::Rough;
