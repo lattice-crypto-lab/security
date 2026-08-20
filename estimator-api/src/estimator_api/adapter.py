@@ -54,6 +54,10 @@ PUBLIC_TO_UPSTREAM = {
     Attack.LATTICE: "lattice",
 }
 
+# About 77 decimal digits. This guards numeric serialization at the unstable
+# Sage boundary; it does not reduce lattice-estimator's model or cache identity.
+NORMALIZATION_REAL_PRECISION_BITS = 256
+
 
 def execute(request: EstimateRequest) -> WorkerResponse:
     """Run exactly the attacks requested by the Rust scheduler."""
@@ -262,7 +266,7 @@ def _log2_cost(value: Any) -> str | None:
         # the logarithm is numeric. Checking the logarithm instead of
         # ``float(value)`` also preserves finite costs larger than the IEEE-754
         # exponent range.
-        security_bits = RealField(256)(value).log(2)
+        security_bits = RealField(NORMALIZATION_REAL_PRECISION_BITS)(value).log(2)
         if not math.isfinite(float(security_bits)):
             return None
         return _canonical_decimal(security_bits)
@@ -289,8 +293,8 @@ def _normalize_metric(value: Any) -> NormalizedMetric | None:
 def _canonical_decimal(value: Any) -> str:
     try:
         decimal = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError, OverflowError) as error:
-        raise ValueError(f"cannot normalize finite decimal {value!r}") from error
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        decimal = _evaluate_numeric_expression(value)
     if not decimal.is_finite():
         raise ValueError("decimal is not finite")
     text = format(decimal, "f")
@@ -299,6 +303,33 @@ def _canonical_decimal(value: Any) -> str:
     if text in {"-0", ""}:
         return "0"
     return text
+
+
+def _evaluate_numeric_expression(value: Any) -> Decimal:
+    """Evaluate finite Sage expressions before decimal serialization.
+
+    Some estimator metrics are symbolic-looking but numerically evaluable, for
+    example ``6.2175161e33*e^(-10)``.  Decimal intentionally does not parse such
+    expressions, so ask Sage for a high-precision real value first.  The float
+    fallback keeps unit tests and non-Sage tooling usable; security-bit values
+    already arrive here as high-precision Sage reals.
+    """
+
+    try:
+        from sage.all import RealField  # type: ignore[import-not-found]
+
+        decimal = Decimal(str(RealField(NORMALIZATION_REAL_PRECISION_BITS)(value)))
+    except (ImportError, InvalidOperation, TypeError, ValueError, OverflowError):
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError(f"cannot normalize finite decimal {value!r}") from error
+        if not math.isfinite(numeric):
+            raise ValueError("decimal is not finite") from None
+        decimal = Decimal(repr(numeric))
+    if not decimal.is_finite():
+        raise ValueError("decimal is not finite")
+    return decimal
 
 
 def _audit_capture(stdout: io.StringIO, stderr: io.StringIO) -> dict[str, Any]:

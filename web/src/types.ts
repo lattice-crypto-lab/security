@@ -6,7 +6,9 @@ export type Distribution =
   | { kind: 'sparse_ternary' }
   | { kind: 'fixed_weight_binary'; hamming_weight: number }
   | { kind: 'fixed_weight_ternary'; positive_weight: number; negative_weight: number }
-  | { kind: 'discrete_gaussian'; standard_deviation: string };
+  | { kind: 'discrete_gaussian'; standard_deviation: string }
+  | { kind: 'centered_binomial'; eta: number }
+  | { kind: 'uniform_integer'; lower: string; upper: string };
 
 export type Problem = {
   kind: string;

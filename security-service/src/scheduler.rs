@@ -367,19 +367,21 @@ impl Runner {
     ) -> Result<PlanExecution, ServiceError> {
         let mut tasks = JoinSet::new();
         for targets in plans {
+            let plan_targets = targets.clone();
             let runner = Arc::clone(self);
             let work = work.clone();
             let context = context.clone();
             let cancellation = Arc::clone(cancellation);
             tasks.spawn(async move {
-                runner
+                let execution = runner
                     .run_plan(
                         &work,
                         &context,
                         PlanOptions { targets, deadline },
                         &cancellation,
                     )
-                    .await
+                    .await;
+                (plan_targets, execution)
             });
         }
 
@@ -387,8 +389,19 @@ impl Runner {
         let mut results = BTreeMap::new();
         while let Some(joined) = tasks.join_next().await {
             let execution = match joined {
-                Ok(Ok(execution)) => execution,
-                Ok(Err(error)) => {
+                Ok((_, Ok(execution))) => execution,
+                Ok((targets, Err(error)))
+                    if matches!(error, ServiceError::Upstream(_)) && work.attempts >= 2 =>
+                {
+                    tracing::warn!(
+                        %error,
+                        attacks = ?targets,
+                        "estimator plan failed after retry"
+                    );
+                    insert_plan_failures(&targets, &error, &mut results);
+                    continue;
+                }
+                Ok((_, Err(error))) => {
                     tasks.shutdown().await;
                     return Err(error);
                 }
@@ -1030,6 +1043,27 @@ fn insert_timeouts(
     }
 }
 
+fn insert_plan_failures(
+    attacks: &[Attack],
+    error: &ServiceError,
+    results: &mut BTreeMap<Attack, AttackResult>,
+) {
+    for attack in attacks {
+        results.insert(
+            *attack,
+            AttackResult {
+                attack: *attack,
+                cached: false,
+                outcome: AttackOutcome::Failed {
+                    code: "estimator_plan_failed".to_owned(),
+                    message: error.to_string(),
+                    retryable: false,
+                },
+            },
+        );
+    }
+}
+
 fn analysis_warnings(model: &AnalysisModel) -> Vec<String> {
     match model {
         AnalysisModel::CoefficientEmbeddingV1 { warnings, .. } => warnings.clone(),
@@ -1094,5 +1128,27 @@ mod tests {
                 vec![Attack::Dual, Attack::DualHybrid],
             ]
         );
+    }
+
+    #[test]
+    fn failed_plan_becomes_attack_level_failures() {
+        let mut results = BTreeMap::new();
+        insert_plan_failures(
+            &[Attack::Dual, Attack::DualHybrid],
+            &ServiceError::Upstream("worker returned 502".to_owned()),
+            &mut results,
+        );
+
+        for attack in [Attack::Dual, Attack::DualHybrid] {
+            assert!(matches!(
+                results[&attack].outcome,
+                AttackOutcome::Failed {
+                    ref code,
+                    ref message,
+                    retryable: false,
+                } if code == "estimator_plan_failed"
+                    && message.contains("worker returned 502")
+            ));
+        }
     }
 }

@@ -71,6 +71,9 @@ class FakeReal:
         assert base == 2
         return math.log2(self.value)  # type: ignore[arg-type]
 
+    def __str__(self) -> str:
+        return repr(float(self.value))
+
 
 class FakeRealField:
     def __init__(self, _precision: int) -> None:
@@ -151,6 +154,19 @@ def test_canonical_decimal_does_not_round_through_binary_float() -> None:
     )
     assert _canonical_decimal("1.2300") == "1.23"
     assert _canonical_decimal("-0.0") == "0"
+
+
+def test_canonical_decimal_evaluates_symbolic_sage_metric() -> None:
+    class SymbolicMetric:
+        def __str__(self) -> str:
+            return "6.2175161e33*e^(-10)"
+
+        def __float__(self) -> float:
+            import math
+
+            return 6.2175161e33 * math.exp(-10)
+
+    assert _canonical_decimal(SymbolicMetric()) == "282274794237118760000000000000"
 
 
 def test_finite_exact_rop_is_converted_to_numeric_security_bits() -> None:
