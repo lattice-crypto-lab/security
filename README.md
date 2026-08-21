@@ -1,74 +1,41 @@
-# lattice-security
+# lattice-security (archived)
 
-Security estimation for LWE, RLWE, GLWE, NTRU, and SIS parameters using a
-pinned [lattice-estimator](https://github.com/malb/lattice-estimator).
+> [!WARNING]
+> This repository is no longer maintained. It does not run CI, publish
+> releases, or receive fixes, including security fixes.
 
-The browser talks only to the Rust service. SageMath and the Python adapter
-remain private inside the Compose network.
+The project has been split into two independently maintained repositories:
 
-## Run
+- [`haofeiliang/lattice-estimator-api`](https://github.com/haofeiliang/lattice-estimator-api):
+  the SageMath and lattice-estimator HTTP API.
+- [`haofeiliang/lattice-estimator-web`](https://github.com/haofeiliang/lattice-estimator-web):
+  the Rust service, Svelte Web UI, scheduler, SQLite state, schemas, examples,
+  Compose configuration, and deployment documentation.
 
-On an x86-64 Linux host with Docker Compose:
+Use the new repositories for all development, issues, pull requests, releases,
+and container images. The historical `estimator-api` and `security-service`
+images are frozen and must not be treated as supported releases.
 
-```bash
-docker compose pull
-docker compose up -d
-```
+## Migration notes
 
-Open <http://127.0.0.1:8080>. To expose it on a trusted LAN, create `.env`:
+The new projects intentionally do not preserve the old database, volume paths,
+environment-variable names, or container-image names. Do not mount an old
+SQLite database into `lattice-estimator-web`.
 
-```dotenv
-LATTICE_SECURITY_HOST=0.0.0.0
-LATTICE_SECURITY_API_TOKEN=replace-with-a-random-token
-```
+To retain business data:
 
-Images default to `latest`. Pin either service independently when needed:
+1. Export parameter sets or security reports as JSON with the old service.
+2. Use `lattice-estimator-migrate` from `lattice-estimator-web` to convert a
+   v1 file to the maintained v2 format.
+3. Import the converted v2 JSON into the new Web service.
 
-```dotenv
-SECURITY_SERVICE_VERSION=0.2.0
-ESTIMATOR_API_VERSION=0.2.0
-```
-
-Data is stored in the `lattice-security-data` volume. If the GHCR packages are
-private, run `docker login ghcr.io` with a token that can read both packages.
-
-## How it works
-
-- `security-service` is the public API, Svelte Web UI, scheduler, SQLite state,
-  history, and per-attack cache.
-- `estimator-api` is a small internal FastAPI boundary that validates one
-  direct problem, launches a killable Sage subprocess, calls the pinned
-  estimator, and normalizes its result.
-- Fast LWE work runs as a primal/BDD group and a dual group. `arora_gb` and
-  `bkw` are first classified by deterministic applicability rules. After the
-  fast result, a slow attack is skipped when the lowest fast estimate already
-  reaches `required_security_bits + stop_margin_bits`; otherwise it runs in
-  its own Sage process.
-
-Parameter sets and reports are the two durable exchange formats. Their JSON
-Schemas are committed in [`schemas/`](schemas/). Maintained examples are in
-[`parameter-sets/`](parameter-sets/), and [`fixtures/README.md`](fixtures/README.md)
-explains the small test fixtures.
-
-## Development
+The converter writes to standard output and does not overwrite the input:
 
 ```bash
-git submodule update --init --recursive
-
-cargo test --locked --manifest-path security-service/Cargo.toml --all-targets
-cargo clippy --locked --manifest-path security-service/Cargo.toml --all-targets -- -D warnings
-
-cd web
-npm ci
-npm run check
-npm run build
-
-cd ../estimator-api
-uv sync --frozen --all-groups
-uv run --frozen pytest
-uv run --frozen ruff check src tests
+cargo run --locked --manifest-path backend/Cargo.toml \
+  --bin lattice-estimator-migrate -- old.json > migrated.json
 ```
 
-The Windows test suite uses a mock estimator. Real Sage, image, Compose, and
-browser verification for each release still belongs in Linux CI or deployment
-testing.
+See the two maintained repositories for current installation, configuration,
+file-format, and release instructions. This repository remains available only
+as historical source and migration reference.
